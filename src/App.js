@@ -7,9 +7,7 @@ const CLIENT_NAME = "Gabriele e Ludovica";
 const PROJECT_NAME = "Villa 127/C — Noicattaro";
 const SESSION_NAME = "VISIONE";
 
-// ─── PROJECT DNA SCHEMA ───────────────────────────────────────────────────────
-// Questo oggetto cresce sessione dopo sessione (Visione → Materia → Luce → Dettaglio → Firma)
-// Ogni categoria è un array: ogni scelta aggiunge un elemento, non sovrascrive.
+// ─── PROJECT DNA ──────────────────────────────────────────────────────────────
 const DNA_STORAGE_KEY = "iel_villa127c_dna";
 
 function emptyDNA() {
@@ -25,14 +23,16 @@ function emptyDNA() {
     outdoor: [],
     funzioni_richieste: [],
     elementi_rifiutati: [],
-    decisioni_raw: {}, // id decisione -> "A" | "B"
+    decisioni_raw: {},
+    reazioni: {},      // id decisione -> emoji
+    annotazioni: {},   // id immagine -> [{ nota, hasDrawing }]
   };
 }
 
 function loadDNA() {
   try {
     const raw = localStorage.getItem(DNA_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return { ...emptyDNA(), ...JSON.parse(raw) };
   } catch {}
   return emptyDNA();
 }
@@ -41,7 +41,6 @@ function saveDNA(dna) {
   try { localStorage.setItem(DNA_STORAGE_KEY, JSON.stringify(dna)); } catch {}
 }
 
-// Aggiunge il contributo di una decisione al Project DNA, in append, mai sovrascrivendo
 function appendToDNA(dna, decision, choiceKey) {
   const opt = choiceKey === "A" ? decision.optionA : decision.optionB;
   const next = { ...dna, decisioni_raw: { ...dna.decisioni_raw, [decision.id]: choiceKey } };
@@ -54,7 +53,22 @@ function appendToDNA(dna, decision, choiceKey) {
   return next;
 }
 
-// ─── DECISIONS — ancorate alle immagini reali, stesso confronto concettuale ──
+function setReaction(dna, decisionId, emoji) {
+  return { ...dna, reazioni: { ...dna.reazioni, [decisionId]: emoji } };
+}
+
+function setAnnotation(dna, imageKey, payload) {
+  return { ...dna, annotazioni: { ...dna.annotazioni, [imageKey]: payload } };
+}
+
+// ─── REACTIONS ────────────────────────────────────────────────────────────────
+const REACTIONS = [
+  { emoji: "😍", label: "Mi piace molto" },
+  { emoji: "🤔", label: "Ho dei dubbi" },
+  { emoji: "❌", label: "Non mi convince" },
+];
+
+// ─── DECISIONS ────────────────────────────────────────────────────────────────
 const DECISIONS = [
   {
     id: "piano_terra",
@@ -114,10 +128,22 @@ const DECISIONS = [
   },
 ];
 
-// ─── AI: PROMPT GENERATOR DA PROJECT DNA ─────────────────────────────────────
+// Placeholder strutturali — set completo
+const PLACEHOLDERS = [
+  { id: "sezione_longitudinale", session: "III", kind: "SEZIONI", title: "Sezione Longitudinale", subtitle: "Altezze interne, relazione tra i piani, rapporto con il terreno." },
+  { id: "sezione_trasversale", session: "III", kind: "SEZIONI", title: "Sezione Trasversale", subtitle: "Profondità della casa, distribuzione verticale degli ambienti." },
+  { id: "prospetto_nord", session: "IV", kind: "PROSPETTI", title: "Prospetto Nord", subtitle: "Facciata principale, ingresso, rapporto con la strada." },
+  { id: "prospetto_sud", session: "IV", kind: "PROSPETTI", title: "Prospetto Sud", subtitle: "Affaccio giardino, aperture verso il sole." },
+  { id: "prospetto_est", session: "IV", kind: "PROSPETTI", title: "Prospetto Est", subtitle: "Fianco laterale, luce del mattino." },
+  { id: "prospetto_ovest", session: "IV", kind: "PROSPETTI", title: "Prospetto Ovest", subtitle: "Fianco laterale, luce della sera." },
+  { id: "piano_interrato", session: "V", kind: "VOLUMI", title: "Piano Interrato", subtitle: "Cantina, locali tecnici, eventuali spazi accessori." },
+  { id: "giardino", session: "VI", kind: "ESTERNI", title: "Giardino e Pertinenze", subtitle: "Verde, percorsi, relazione tra costruito e paesaggio." },
+];
+
+// ─── AI: PROMPT GENERATOR ─────────────────────────────────────────────────────
 async function generatePromptDraft(dna) {
   const systemPrompt = `Sei l'AI di IEL, motore di decisione per progetti architettonici.
-Ricevi un Project DNA strutturato (preferenze accumulate del cliente) e generi una BOZZA di prompt per Lychee Studio (generatore di render AI), in inglese, tecnico, pronto per essere modificato da un architetto prima dell'invio.
+Ricevi un Project DNA strutturato (preferenze accumulate del cliente, comprese reazioni emotive e annotazioni libere) e generi una BOZZA di prompt per Lychee Studio (generatore di render AI), in inglese, tecnico, pronto per essere modificato da un architetto prima dell'invio.
 Rispondi SOLO con un oggetto JSON valido, senza markdown, senza backtick.
 Formato:
 {
@@ -164,12 +190,10 @@ function useInView(threshold = 0.2) {
   return [ref, inView];
 }
 
-// Parallax reale: calcola quanto la sezione è scrollata e restituisce un valore -1..1
-// Accetta un ref esterno opzionale così può condividere lo stesso nodo DOM di useInView
 function useParallax(externalRef) {
   const internalRef = useRef(null);
   const ref = externalRef || internalRef;
-  const [progress, setProgress] = useState(0); // -1 (sopra) .. 0 (centro) .. 1 (sotto)
+  const [progress, setProgress] = useState(0);
   useEffect(() => {
     function onScroll() {
       if (!ref.current) return;
@@ -190,6 +214,18 @@ function useParallax(externalRef) {
   return [ref, progress];
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false
+  );
+  useEffect(() => {
+    function onResize() { setIsMobile(window.innerWidth <= 768); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
 // ─── SMART IMAGE ──────────────────────────────────────────────────────────────
 function Img({ src, fallback, alt, className, style }) {
   const [s, set] = useState(src);
@@ -201,7 +237,145 @@ function Img({ src, fallback, alt, className, style }) {
   );
 }
 
-// ─── PROGRESS BAR ─────────────────────────────────────────────────────────────
+// ─── DRAW + NOTE OVERLAY — disegno col dito + commento, per immagine ─────────
+function DrawAnnotate({ imageKey, dna, onSave }) {
+  const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState(dna.annotazioni[imageKey]?.nota || "");
+  const [hasDrawing, setHasDrawing] = useState(!!dna.annotazioni[imageKey]?.hasDrawing);
+  const drawing = useRef(false);
+
+  const getCtx = () => canvasRef.current?.getContext("2d");
+
+  const resizeCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    const ctx = getCtx();
+    if (ctx) {
+      ctx.strokeStyle = "#c9a96e";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    return () => window.removeEventListener("resize", resizeCanvas);
+  }, [open, resizeCanvas]);
+
+  const getPos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const point = e.touches ? e.touches[0] : e;
+    return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+  };
+
+  const start = (e) => {
+    e.preventDefault();
+    drawing.current = true;
+    const { x, y } = getPos(e);
+    const ctx = getCtx();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+  const move = (e) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    const ctx = getCtx();
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setHasDrawing(true);
+  };
+  const end = () => { drawing.current = false; };
+
+  const clear = () => {
+    const ctx = getCtx();
+    if (ctx && canvasRef.current) {
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+    setHasDrawing(false);
+  };
+
+  const save = () => {
+    onSave(imageKey, { nota: note, hasDrawing });
+    setOpen(false);
+  };
+
+  const existing = dna.annotazioni[imageKey];
+
+  if (!open) {
+    return (
+      <button className="annotate-trigger" onClick={() => setOpen(true)}>
+        <span className="annotate-icon">✎</span>
+        {existing && (existing.nota || existing.hasDrawing)
+          ? "Modifica la tua nota"
+          : "Disegna o scrivi una nota"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="annotate-panel">
+      <div className="annotate-canvas-wrap" ref={wrapRef}>
+        <canvas
+          ref={canvasRef}
+          className="annotate-canvas"
+          onMouseDown={start}
+          onMouseMove={move}
+          onMouseUp={end}
+          onMouseLeave={end}
+          onTouchStart={start}
+          onTouchMove={move}
+          onTouchEnd={end}
+        />
+        <span className="annotate-hint">Disegna col dito o col mouse →</span>
+      </div>
+      <textarea
+        className="annotate-note"
+        placeholder="Aggiungi una nota — qualcosa che non rientra nelle domande…"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={2}
+      />
+      <div className="annotate-actions">
+        <button className="annotate-clear" onClick={clear}>Cancella segno</button>
+        <button className="annotate-save" onClick={save}>Salva nota →</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── REACTION BAR ─────────────────────────────────────────────────────────────
+function ReactionBar({ decisionId, dna, onReact }) {
+  const current = dna.reazioni[decisionId];
+  return (
+    <div className="reaction-bar">
+      <span className="reaction-label">Come ti fa sentire questa scelta?</span>
+      <div className="reaction-buttons">
+        {REACTIONS.map((r) => (
+          <button
+            key={r.emoji}
+            className={`reaction-btn ${current === r.emoji ? "active" : ""}`}
+            onClick={() => onReact(decisionId, r.emoji)}
+            title={r.label}
+          >
+            {r.emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── PROGRESS ─────────────────────────────────────────────────────────────────
 function ProgressBar({ choices }) {
   const count = Object.keys(choices).length;
   const pct = (count / DECISIONS.length) * 100;
@@ -218,7 +392,7 @@ function ProgressBar({ choices }) {
   );
 }
 
-// ─── HERO — con parallax sul background grid ─────────────────────────────────
+// ─── HERO ─────────────────────────────────────────────────────────────────────
 function Hero({ onStart }) {
   const [v, setV] = useState(false);
   const [heroRef, progress] = useParallax();
@@ -228,7 +402,7 @@ function Hero({ onStart }) {
     <section ref={heroRef} className="hero">
       <div
         className="hero-grid-bg"
-        style={{ transform: `translateY(${progress * 60}px) scale(${1 + Math.abs(progress) * 0.08})` }}
+        style={{ transform: `translateY(${progress * 90}px) scale(${1 + Math.abs(progress) * 0.15})` }}
       />
       <div className={`hero-body ${v ? "vis" : ""}`}>
         <div className="eyebrow">IEL · Interactive Experience Layer</div>
@@ -249,7 +423,7 @@ function Hero({ onStart }) {
   );
 }
 
-// ─── LIVE BUILD NOTICE — spiega che il 3D si costruirà man mano ─────────────
+// ─── LIVE BUILD NOTICE ────────────────────────────────────────────────────────
 function LiveBuildNotice() {
   const [ref, inView] = useInView(0.3);
   return (
@@ -259,30 +433,95 @@ function LiveBuildNotice() {
         <h3 className="notice-title">Un edificio che si costruisce con voi</h3>
         <p className="notice-body">
           Le immagini che vedrete da qui in avanti sono una base di partenza, non il
-          progetto finale. Ogni scelta che farete — piano terra, piano primo, sezioni,
-          prospetti — viene registrata nel <strong>Project DNA</strong> della villa.
+          progetto finale. Ogni scelta — piano terra, piano primo, sezioni,
+          prospetti, interrato, giardino — viene registrata nel <strong>Project DNA</strong> della villa.
           <br /><br />
           Quando avrete completato le decisioni principali, il modello 3D si
-          configurerà automaticamente sulla base di ciò che avete scelto insieme
-          a Raffaella. Non state guardando un render statico — state costruendo
-          il prossimo, passo dopo passo.
+          configurerà automaticamente su ciò che avete scelto insieme a Raffaella.
+          Potete anche disegnare col dito direttamente sulle immagini, o lasciare
+          una nota libera — tutto arriva all'architetto.
         </p>
       </div>
     </section>
   );
 }
 
-// ─── COMPARE CARD — con parallax cinematico vero ─────────────────────────────
-function CompareCard({ decision, onChoice, choices }) {
+// ─── MOBILE SWIPE COMPARE — schermo intero, swipe per cambiare versione ─────
+function MobileCompareCard({ decision, onChoice, choices, dna, onReact, onAnnotate }) {
   const [ref, inView] = useInView(0.15);
-  const [, progress] = useParallax(ref); // condivide lo stesso nodo DOM di useInView
+  const chosen = choices[decision.id];
+  const [active, setActive] = useState("A"); // quale versione è in primo piano
+  const touchStartX = useRef(null);
+
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 50) setActive((prev) => (prev === "A" ? "B" : "A"));
+    touchStartX.current = null;
+  };
+
+  const opt = active === "A" ? decision.optionA : decision.optionB;
+  const img = active === "A" ? decision.imageA : decision.imageB;
+  const imageKey = `${decision.id}_${active}`;
+
+  return (
+    <section ref={ref} className={`mcompare-section ${inView ? "in-view" : ""}`}>
+      <div className="mcompare-header">
+        <div className="session-tag">VISIONE · {decision.session}</div>
+        <h2 className="decision-h2">{decision.title}</h2>
+        <p className="decision-q">{decision.question}</p>
+      </div>
+
+      <div
+        className="mcompare-stage"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <Img src={img} alt={opt.label} className="mcompare-img" />
+        <div className="mcompare-img-overlay" />
+
+        <div className="mcompare-dots">
+          <span className={`mdot ${active === "A" ? "on" : ""}`} onClick={() => setActive("A")} />
+          <span className={`mdot ${active === "B" ? "on" : ""}`} onClick={() => setActive("B")} />
+        </div>
+
+        <div className="mcompare-swipe-hint">← swipe per confrontare →</div>
+
+        <div className="mcompare-label">
+          <span className="mcompare-name">{opt.label}</span>
+          <span className="mcompare-tag">{opt.tag}</span>
+        </div>
+      </div>
+
+      <p className="mcompare-desc">{opt.description}</p>
+
+      <button
+        className={`mcompare-choose ${chosen === active ? "chosen" : ""}`}
+        onClick={() => onChoice(decision.id, active)}
+      >
+        {chosen === active ? "✓ Versione scelta" : `Scegli ${opt.label} →`}
+      </button>
+
+      <ReactionBar decisionId={decision.id} dna={dna} onReact={onReact} />
+      <DrawAnnotate imageKey={imageKey} dna={dna} onSave={onAnnotate} />
+
+      {chosen && <div className="confirmed-bar">Aggiunto al Project DNA ↓</div>}
+    </section>
+  );
+}
+
+// ─── DESKTOP COMPARE CARD ─────────────────────────────────────────────────────
+function CompareCard({ decision, onChoice, choices, dna, onReact, onAnnotate }) {
+  const [ref, inView] = useInView(0.15);
+  const [, progress] = useParallax(ref);
   const chosen = choices[decision.id];
   const [hov, setHov] = useState(null);
 
-  // zoom scale legato allo scroll: immagini si "aprono" leggermente mentre la sezione è a centro schermo
-  const baseScale = 1.08 - Math.abs(progress) * 0.08;
-  const shiftA = progress * 18;
-  const shiftB = progress * -18;
+  // parallax + zoom più marcato
+  const baseScale = 1.14 - Math.abs(progress) * 0.14;
+  const shiftA = progress * 36;
+  const shiftB = progress * -36;
 
   return (
     <section ref={ref} className={`compare-section ${inView ? "in-view" : ""}`}>
@@ -294,75 +533,58 @@ function CompareCard({ decision, onChoice, choices }) {
       </div>
 
       <div className="compare-grid">
-        {/* OPTION A */}
-        <button
-          className={`compare-card ${chosen === "A" ? "chosen" : ""} ${hov === "A" ? "hov" : ""}`}
-          onMouseEnter={() => setHov("A")}
-          onMouseLeave={() => setHov(null)}
-          onClick={() => { onChoice(decision.id, "A"); setZoomed("A"); }}
-        >
-          <div className="compare-img-wrap">
-            <Img
-              src={decision.imageA}
-              alt={decision.optionA.label}
-              className="compare-img"
-              style={{ transform: `scale(${baseScale}) translateY(${shiftA}px)` }}
-            />
-            <div className="compare-img-overlay" />
-            {chosen === "A" && <div className="compare-chosen-badge">✓ Scelto</div>}
-          </div>
-          <div className="compare-label-block">
-            <span className="compare-option-name">{decision.optionA.label}</span>
-            <span className="compare-option-tag">{decision.optionA.tag}</span>
-            <span className="compare-option-desc">{decision.optionA.description}</span>
-          </div>
-        </button>
-
-        <div className="compare-vs">o</div>
-
-        {/* OPTION B */}
-        <button
-          className={`compare-card ${chosen === "B" ? "chosen" : ""} ${hov === "B" ? "hov" : ""}`}
-          onMouseEnter={() => setHov("B")}
-          onMouseLeave={() => setHov(null)}
-          onClick={() => { onChoice(decision.id, "B"); setZoomed("B"); }}
-        >
-          <div className="compare-img-wrap">
-            <Img
-              src={decision.imageB}
-              alt={decision.optionB.label}
-              className="compare-img"
-              style={{ transform: `scale(${baseScale}) translateY(${shiftB}px)` }}
-            />
-            <div className="compare-img-overlay" />
-            {chosen === "B" && <div className="compare-chosen-badge">✓ Scelto</div>}
-          </div>
-          <div className="compare-label-block">
-            <span className="compare-option-name">{decision.optionB.label}</span>
-            <span className="compare-option-tag">{decision.optionB.tag}</span>
-            <span className="compare-option-desc">{decision.optionB.description}</span>
-          </div>
-        </button>
+        {["A", "B"].map((key, idx) => {
+          const o = key === "A" ? decision.optionA : decision.optionB;
+          const img = key === "A" ? decision.imageA : decision.imageB;
+          const shift = key === "A" ? shiftA : shiftB;
+          const imageKey = `${decision.id}_${key}`;
+          return (
+            <div key={key} className="compare-col">
+              <button
+                className={`compare-card ${chosen === key ? "chosen" : ""} ${hov === key ? "hov" : ""}`}
+                onMouseEnter={() => setHov(key)}
+                onMouseLeave={() => setHov(null)}
+                onClick={() => onChoice(decision.id, key)}
+              >
+                <div className="compare-img-wrap">
+                  <Img
+                    src={img}
+                    alt={o.label}
+                    className="compare-img"
+                    style={{ transform: `scale(${baseScale}) translateY(${shift}px)` }}
+                  />
+                  <div className="compare-img-overlay" />
+                  {chosen === key && <div className="compare-chosen-badge">✓ Scelto</div>}
+                </div>
+                <div className="compare-label-block">
+                  <span className="compare-option-name">{o.label}</span>
+                  <span className="compare-option-tag">{o.tag}</span>
+                  <span className="compare-option-desc">{o.description}</span>
+                </div>
+              </button>
+              <DrawAnnotate imageKey={imageKey} dna={dna} onSave={onAnnotate} />
+              {idx === 0 && <div className="compare-vs-desktop">o</div>}
+            </div>
+          );
+        })}
       </div>
 
-      {chosen && (
-        <div className="confirmed-bar">
-          Aggiunto al Project DNA — scorri per continuare ↓
-        </div>
-      )}
+      <ReactionBar decisionId={decision.id} dna={dna} onReact={onReact} />
+
+      {chosen && <div className="confirmed-bar">Aggiunto al Project DNA — scorri per continuare ↓</div>}
     </section>
   );
 }
 
-// ─── SECTION/PROSPETTO PLACEHOLDER — pronto per quando carichi i file ───────
-function PlaceholderCard({ kind, title, subtitle }) {
+// ─── PLACEHOLDER CARD ─────────────────────────────────────────────────────────
+function PlaceholderCard({ item }) {
   const [ref, inView] = useInView(0.2);
   return (
     <section ref={ref} className={`placeholder-section ${inView ? "in-view" : ""}`}>
       <div className="placeholder-inner">
-        <div className="placeholder-kind">{kind}</div>
-        <h3 className="placeholder-title">{title}</h3>
-        <p className="placeholder-sub">{subtitle}</p>
+        <div className="placeholder-kind">{item.kind} · VISIONE {item.session}</div>
+        <h3 className="placeholder-title">{item.title}</h3>
+        <p className="placeholder-sub">{item.subtitle}</p>
         <div className="placeholder-frame">
           <span className="placeholder-frame-label">In arrivo</span>
         </div>
@@ -400,19 +622,35 @@ function DNAEngine({ choices, dna, sent, onSend }) {
     if (allDone && inView && !aiOutput && !loading) runAI();
   }, [allDone, inView, aiOutput, loading, runAI]);
 
+  const annotationEntries = Object.entries(dna.annotazioni || {}).filter(
+    ([, v]) => v && (v.nota || v.hasDrawing)
+  );
+  const reactionEntries = Object.entries(dna.reazioni || {});
+
   const handleSend = () => {
     const dateStr = new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
+
     const dnaLines = DECISIONS.map((d) => {
       const choice = choices[d.id];
       if (!choice) return `⏳ ${d.title}: non scelto`;
       const opt = choice === "A" ? d.optionA : d.optionB;
-      return `✅ ${d.title}: ${opt.label} — ${opt.tag}`;
+      const reaction = dna.reazioni[d.id] ? ` ${dna.reazioni[d.id]}` : "";
+      return `✅ ${d.title}: ${opt.label} — ${opt.tag}${reaction}`;
     }).join("\n");
 
     const dnaCategories = ["stile", "materiali", "luce", "privacy", "outdoor", "funzioni_richieste"]
       .filter((cat) => dna[cat]?.length)
       .map((cat) => `${cat.toUpperCase()}: ${dna[cat].join(", ")}`)
       .join("\n");
+
+    const annotationLines = annotationEntries.length
+      ? annotationEntries.map(([key, v]) => {
+          const parts = [];
+          if (v.hasDrawing) parts.push("[disegno presente]");
+          if (v.nota) parts.push(`"${v.nota}"`);
+          return `• ${key}: ${parts.join(" ")}`;
+        }).join("\n")
+      : "(nessuna annotazione libera)";
 
     const body = [
       `DECISION DNA — ${PROJECT_NAME}`,
@@ -421,7 +659,7 @@ function DNAEngine({ choices, dna, sent, onSend }) {
       `Sessione: ${SESSION_NAME}`,
       ``,
       `═══════════════════════════════════════`,
-      `DECISIONI`,
+      `DECISIONI E REAZIONI`,
       `═══════════════════════════════════════`,
       ``,
       dnaLines,
@@ -431,6 +669,12 @@ function DNAEngine({ choices, dna, sent, onSend }) {
       `═══════════════════════════════════════`,
       ``,
       dnaCategories || "(nessuna categoria ancora popolata)",
+      ``,
+      `═══════════════════════════════════════`,
+      `NOTE E DISEGNI DEL CLIENTE`,
+      `═══════════════════════════════════════`,
+      ``,
+      annotationLines,
       ``,
       ...(aiOutput ? [
         `═══════════════════════════════════════`,
@@ -470,6 +714,7 @@ function DNAEngine({ choices, dna, sent, onSend }) {
           {DECISIONS.map((d, i) => {
             const choice = choices[d.id];
             const opt = choice === "A" ? d.optionA : choice === "B" ? d.optionB : null;
+            const reaction = dna.reazioni[d.id];
             return (
               <div key={d.id} className={`dna-row ${choice ? "confirmed" : "pending"}`} style={{ animationDelay: `${i * 0.1}s` }}>
                 <span className="dna-row-icon">{choice ? "✅" : "⏳"}</span>
@@ -478,7 +723,7 @@ function DNAEngine({ choices, dna, sent, onSend }) {
                   <span className="dna-row-title">{d.title}</span>
                   {opt ? (
                     <>
-                      <span className="dna-row-choice">{opt.label}</span>
+                      <span className="dna-row-choice">{opt.label} {reaction || ""}</span>
                       <span className="dna-row-tag">{opt.tag}</span>
                     </>
                   ) : (
@@ -489,6 +734,14 @@ function DNAEngine({ choices, dna, sent, onSend }) {
             );
           })}
         </div>
+
+        {annotationEntries.length > 0 && (
+          <div className="dna-annotations-summary">
+            <span className="dna-annotations-label">
+              {annotationEntries.length} {annotationEntries.length === 1 ? "nota lasciata" : "note lasciate"} sulle immagini
+            </span>
+          </div>
+        )}
 
         {allDone && (
           <div className="ai-output-block">
@@ -510,7 +763,6 @@ function DNAEngine({ choices, dna, sent, onSend }) {
                   <p className="ai-panel-text">{aiOutput.design_intent}</p>
                 </div>
 
-                {/* PROMPT EDITABILE DALL'ARCHITETTO */}
                 <div className="ai-panel ai-panel-code">
                   <div className="ai-panel-label">
                     Prompt Lychee Studio
@@ -528,10 +780,7 @@ function DNAEngine({ choices, dna, sent, onSend }) {
                   ) : (
                     <p className="ai-panel-prompt">{promptDraft}</p>
                   )}
-                  <button
-                    className="ai-edit-toggle"
-                    onClick={() => setEditingPrompt((v) => !v)}
-                  >
+                  <button className="ai-edit-toggle" onClick={() => setEditingPrompt((v) => !v)}>
                     {editingPrompt ? "Conferma modifiche" : "Modifica prompt →"}
                   </button>
                 </div>
@@ -576,8 +825,8 @@ function DNAEngine({ choices, dna, sent, onSend }) {
             <div className="sent-star">✦</div>
             <p className="sent-title">Inviato a RC XRArch</p>
             <p className="sent-body">
-              Raffaella riceverà il Project DNA, il Design Intent e il prompt<br />
-              revisionato per la prossima iterazione in Lychee Studio.<br />
+              Raffaella riceverà il Project DNA, le vostre reazioni, le note<br />
+              lasciate sulle immagini e il prompt per la prossima iterazione.<br />
               <strong>Prossima sessione: MATERIA</strong>
             </p>
           </div>
@@ -593,6 +842,7 @@ export default function App() {
   const [choices, setChoices] = useState({});
   const [dna, setDna] = useState(loadDNA);
   const [sent, setSent] = useState(false);
+  const isMobile = useIsMobile();
   const firstRef = useRef(null);
 
   const handleStart = () => {
@@ -610,6 +860,22 @@ export default function App() {
     });
   };
 
+  const handleReact = (decisionId, emoji) => {
+    setDna((prev) => {
+      const next = setReaction(prev, decisionId, emoji);
+      saveDNA(next);
+      return next;
+    });
+  };
+
+  const handleAnnotate = (imageKey, payload) => {
+    setDna((prev) => {
+      const next = setAnnotation(prev, imageKey, payload);
+      saveDNA(next);
+      return next;
+    });
+  };
+
   return (
     <div className="app">
       <Hero onStart={handleStart} />
@@ -621,20 +887,33 @@ export default function App() {
           <div ref={firstRef}>
             <LiveBuildNotice />
 
-            {DECISIONS.map((d) => (
-              <CompareCard key={d.id} decision={d} onChoice={handleChoice} choices={choices} />
-            ))}
+            {DECISIONS.map((d) =>
+              isMobile ? (
+                <MobileCompareCard
+                  key={d.id}
+                  decision={d}
+                  onChoice={handleChoice}
+                  choices={choices}
+                  dna={dna}
+                  onReact={handleReact}
+                  onAnnotate={handleAnnotate}
+                />
+              ) : (
+                <CompareCard
+                  key={d.id}
+                  decision={d}
+                  onChoice={handleChoice}
+                  choices={choices}
+                  dna={dna}
+                  onReact={handleReact}
+                  onAnnotate={handleAnnotate}
+                />
+              )
+            )}
 
-            <PlaceholderCard
-              kind="VISIONE · III"
-              title="Sezione Longitudinale"
-              subtitle="Verrà mostrata qui non appena disponibile — mostrerà le altezze interne e la relazione tra i piani."
-            />
-            <PlaceholderCard
-              kind="VISIONE · IV"
-              title="Prospetto Principale"
-              subtitle="Verrà mostrato qui non appena disponibile — definirà il rapporto pieni/vuoti sulla facciata."
-            />
+            {PLACEHOLDERS.map((p) => (
+              <PlaceholderCard key={p.id} item={p} />
+            ))}
           </div>
 
           <DNAEngine choices={choices} dna={dna} sent={sent} onSend={() => setSent(true)} />

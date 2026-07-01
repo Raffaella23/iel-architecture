@@ -276,7 +276,7 @@ const Img = ({ src, fallback, alt, className, style, imgRef }) => {
 
 // ─── PROJECT INTELLIGENCE CARD — la micro-conversazione AI ──────────────────
 // stati: "intent" (scegli cosa) -> "thinking" -> "confirm" (conferma interpretazione) -> "saved"
-function ProjectIntelligenceCard({ area, onClose, onValidated }) {
+function ProjectIntelligenceCard({ area, anchorX, anchorY, onClose, onValidated }) {
   const [stage, setStage] = useState("intent");
   const [quickIntent, setQuickIntent] = useState(null);
   const [freeNote, setFreeNote] = useState("");
@@ -314,9 +314,18 @@ function ProjectIntelligenceCard({ area, onClose, onValidated }) {
     setTimeout(onClose, 1900);
   };
 
+  const CARD_W = 320;
+  const CARD_H = 360;
+  const MARGIN = 16;
+  const cardLeft = Math.max(MARGIN, Math.min((anchorX||window.innerWidth/2) - CARD_W/2, window.innerWidth - CARD_W - MARGIN));
+  const spaceBelow = window.innerHeight - (anchorY||window.innerHeight/2) - MARGIN;
+  const cardTop = spaceBelow > CARD_H + 20
+    ? (anchorY||window.innerHeight/2) + 14
+    : (anchorY||window.innerHeight/2) - CARD_H - 14;
+
   return (
     <div className="pi-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pi-card">
+      <div className="pi-card" style={{ top: Math.max(MARGIN, cardTop), left: cardLeft }}>
         <div className="pi-header">
           <span className="pi-brand">Project Intelligence</span>
           <button className="pi-close" onClick={onClose}>✕</button>
@@ -400,7 +409,7 @@ function ProjectIntelligenceCard({ area, onClose, onValidated }) {
 }
 
 // ─── DRAW LAYER — overlay trasparente DIRETTAMENTE sopra l'immagine ─────────
-function DrawLayer({ decisionId, imageRef, onMark }) {
+function DrawLayer({ decisionId, imageRef, onMark }) { // onMark(area, {x,y})
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const lastPoint = useRef(null);
@@ -463,7 +472,11 @@ function DrawLayer({ decisionId, imageRef, onMark }) {
       const xPct = p.x / canvas.width;
       const yPct = p.y / canvas.height;
       const area = getHotspotName(decisionId, xPct, yPct);
-      onMark(area);
+      // position the PI card near the draw point on screen
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const anchorX = canvasRect.left + p.x;
+      const anchorY = canvasRect.top + p.y;
+      onMark(area, { x: anchorX, y: anchorY });
     }
     // pulisce dopo un istante per lasciare vedere il segno
     setTimeout(() => {
@@ -487,7 +500,7 @@ function ReactionBar({ decisionId, dna, onReact, onOpenIntelligence }) {
   const current = dna.reazioni[decisionId];
   const handle = (r) => {
     onReact(decisionId, r.emoji);
-    if (r.needsFollowup) onOpenIntelligence("questa scelta");
+    if (r.needsFollowup) onOpenIntelligence("questa scelta", null);
   };
   return (
     <div className="reaction-bar">
@@ -520,26 +533,277 @@ function ProgressBar({ choices }) {
 }
 
 // ─── HERO ─────────────────────────────────────────────────────────────────────
+// ─── WEBGL SHADER BACKGROUND ─────────────────────────────────────────────────
+function ShaderBg() {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    function syncSize() {
+      const w = canvas.clientWidth || 1280;
+      const h = canvas.clientHeight || 720;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+    const ro = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(syncSize)
+      : null;
+    if (ro) ro.observe(canvas);
+    syncSize();
+
+    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+    if (!gl) return;
+
+    const vs = `attribute vec2 a_position;
+varying vec2 v_texCoord;
+void main(){v_texCoord=a_position*.5+.5;gl_Position=vec4(a_position,0.,1.);}`;
+
+    const fs = `precision highp float;
+uniform float u_time;uniform vec2 u_resolution;uniform vec2 u_mouse;
+varying vec2 v_texCoord;
+float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.-2.*f);
+float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
+return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}
+void main(){
+vec2 uv=v_texCoord;
+vec2 mouse=u_mouse/u_resolution;
+vec2 grid=fract(uv*10.);
+float gridLine=smoothstep(0.,.02,grid.x)*smoothstep(1.,.98,grid.x)*smoothstep(0.,.02,grid.y)*smoothstep(1.,.98,grid.y);
+float n=noise(uv*3.+u_time*.1);
+vec3 c1=vec3(.05,.05,.07),c2=vec3(.12,.11,.1),accent=vec3(.77,.64,.47);
+vec3 col=mix(c1,c2,n);
+float dist=distance(uv,mouse);
+col+=accent*smoothstep(.4,.0,dist)*.15;
+col=mix(col,col+.02,1.-gridLine);
+gl_FragColor=vec4(col,1.);}`;
+
+    function cs(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return s;
+    }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, cs(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, cs(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+    const pos = gl.getAttribLocation(prog, "a_position");
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+    const uTime = gl.getUniformLocation(prog, "u_time");
+    const uRes  = gl.getUniformLocation(prog, "u_resolution");
+    const uMouse= gl.getUniformLocation(prog, "u_mouse");
+
+    let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+    const onMouse = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      mouse.x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+      mouse.y = (1 - (e.clientY - rect.top) / rect.height) * canvas.height;
+    };
+    window.addEventListener("mousemove", onMouse);
+
+    let raf;
+    function render(t) {
+      syncSize();
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.uniform1f(uTime, t * 0.001);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform2f(uMouse, mouse.x, mouse.y);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      raf = requestAnimationFrame(render);
+    }
+    raf = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("mousemove", onMouse);
+      if (ro) ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.7, display: "block" }}
+    />
+  );
+}
+
+// ─── THREE.JS MONOLITH ────────────────────────────────────────────────────────
+function MonolithCanvas() {
+  const mountRef = useRef(null);
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el || !window.THREE) return;
+    const THREE = window.THREE;
+    const w = el.clientWidth || 400;
+    const h = el.clientHeight || 600;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
+    camera.position.z = 5;
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    el.appendChild(renderer.domElement);
+
+    const geo = new THREE.BoxGeometry(2, 3, 0.5);
+    const mat = new THREE.MeshPhongMaterial({ color: 0x1a1a1a, shininess: 100, specular: 0xc5a377, flatShading: true, transparent: true, opacity: 0.8 });
+    const monolith = new THREE.Mesh(geo, mat);
+    scene.add(monolith);
+
+    const wireGeo = new THREE.BoxGeometry(2.2, 3.2, 0.7);
+    const wireMat = new THREE.MeshBasicMaterial({ color: 0xc5a377, wireframe: true, transparent: true, opacity: 0.2 });
+    const wireframe = new THREE.Mesh(wireGeo, wireMat);
+    scene.add(wireframe);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+    const pl = new THREE.PointLight(0xc5a377, 1);
+    pl.position.set(5, 5, 5);
+    scene.add(pl);
+    const pl2 = new THREE.PointLight(0x4444ff, 0.5);
+    pl2.position.set(-5, -5, 2);
+    scene.add(pl2);
+
+    let mouseX = 0, mouseY = 0;
+    const onMouse = (e) => {
+      mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+    };
+    window.addEventListener("mousemove", onMouse);
+
+    let raf;
+    function animate() {
+      raf = requestAnimationFrame(animate);
+      monolith.rotation.y += 0.005;
+      monolith.rotation.x += 0.002;
+      wireframe.rotation.y += 0.005;
+      wireframe.rotation.x += 0.002;
+      monolith.position.x += (mouseX * 0.5 - monolith.position.x) * 0.05;
+      monolith.position.y += (mouseY * 0.5 - monolith.position.y) * 0.05;
+      wireframe.position.x = monolith.position.x;
+      wireframe.position.y = monolith.position.y;
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    const onResize = () => {
+      const nw = el.clientWidth || w;
+      const nh = el.clientHeight || h;
+      camera.aspect = nw / nh;
+      camera.updateProjectionMatrix();
+      renderer.setSize(nw, nh);
+    };
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("mousemove", onMouse);
+      window.removeEventListener("resize", onResize);
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+      renderer.dispose();
+    };
+  }, []);
+  return (
+    <div
+      ref={mountRef}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+    />
+  );
+}
+
+// ─── HERO — WebGL + Three.js + contenuto ─────────────────────────────────────
 function Hero({ onStart }) {
   const [v, setV] = useState(false);
-  const [heroRef, progress] = useParallax();
-  useEffect(() => { setTimeout(() => setV(true), 80); }, []);
+  const [threeReady, setThreeReady] = useState(!!window.THREE);
+  useEffect(() => { setTimeout(() => setV(true), 100); }, []);
+
+  // Carica Three.js dinamicamente se non è ancora presente
+  useEffect(() => {
+    if (window.THREE) { setThreeReady(true); return; }
+    const script = document.createElement("script");
+    script.src = "https://ajax.googleapis.com/ajax/libs/threejs/r125/three.min.js";
+    script.onload = () => setThreeReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Parallax contenuto al mouse
+  const contentRef = useRef(null);
+  useEffect(() => {
+    const onMouse = (e) => {
+      if (!contentRef.current) return;
+      const x = (e.clientX / window.innerWidth - 0.5) * 14;
+      const y = (e.clientY / window.innerHeight - 0.5) * 14;
+      contentRef.current.style.transform = `translate(${x * 0.4}px, ${y * 0.4}px)`;
+    };
+    window.addEventListener("mousemove", onMouse);
+    return () => window.removeEventListener("mousemove", onMouse);
+  }, []);
+
   return (
-    <section ref={heroRef} className="hero">
-      <div className="hero-grid-bg" style={{ transform: `translateY(${progress * 120}px) scale(${1 + Math.abs(progress) * 0.22}) rotateX(${progress * 4}deg)` }} />
-      <div className={`hero-body ${v ? "vis" : ""}`}>
-        <div className="eyebrow">IEL · Project Intelligence</div>
-        <h1 className="hero-h1">Villa<br />127/C</h1>
-        <p className="hero-place">Noicattaro, Puglia · RC XRArch</p>
-        <p className="hero-copy">
-          Benvenuti, {CLIENT_NAME}.<br />
-          Non state guardando immagini.<br />
-          State conversando con il progetto.
-        </p>
-        <button className="btn-primary" onClick={onStart}>Inizia l'esperienza →</button>
-        <div className="hero-meta">sessione VISIONE · Project Intelligence attiva</div>
-      </div>
-      <div className="scroll-hint">↓</div>
+    <section className="hero hero-cinematic">
+      {/* Shader WebGL */}
+      <ShaderBg />
+
+      {/* Griglia matematica */}
+      <div className="hero-math-grid" />
+
+      {/* Monolite 3D */}
+      {threeReady && <MonolithCanvas />}
+
+      {/* Nav top */}
+      <header className="hero-nav">
+        <div className="hero-nav-left">
+          <span className="hero-nav-icon">⊞</span>
+          <span className="hero-nav-brand">IEL ARCHITECT</span>
+        </div>
+        <div className="hero-nav-right">
+          <span className="hero-nav-item active">PORTAL</span>
+          <span className="hero-nav-item">DNA INDEX</span>
+          <span className="hero-nav-item">COLLECTIONS</span>
+        </div>
+      </header>
+
+      {/* Contenuto centrale */}
+      <main className="hero-main" ref={contentRef}>
+        <div className={`hero-content ${v ? "vis" : ""}`}>
+          <p className="hero-location">NOICATTARO, PUGLIA · RC XRARCH</p>
+          <div className="hero-title-wrap">
+            <h1 className="hero-h1-cine">Villa 127/C</h1>
+            <h1 className="hero-h1-shadow" aria-hidden="true">Villa 127/C</h1>
+          </div>
+          <p className="hero-copy-cine">
+            Benvenuti, <strong>{CLIENT_NAME}</strong>. Non state guardando immagini.<br />
+            State conversando con il progetto.
+          </p>
+          <button className="hero-cta" onClick={onStart}>
+            <span>INIZIA L'ESPERIENZA</span>
+            <span className="hero-cta-arrow">→</span>
+          </button>
+        </div>
+      </main>
+
+      {/* Footer hint */}
+      <footer className="hero-footer">
+        <div className="hero-footer-line" />
+        <span className="hero-footer-arrow">⌄⌄</span>
+        <div className="hero-footer-line" />
+      </footer>
+
+      {/* Bottom nav */}
+      <nav className="hero-bottom-nav">
+        <button className="hero-bnav-btn active">◉</button>
+        <button className="hero-bnav-btn">⌖</button>
+        <button className="hero-bnav-btn">◌</button>
+      </nav>
     </section>
   );
 }
@@ -614,7 +878,7 @@ function CompareCard({ decision, onChoice, choices, dna, onReact, onOpenIntellig
                   <DrawLayer
                     decisionId={decision.id}
                     imageRef={imgRef}
-                    onMark={(area) => onOpenIntelligence(area)}
+                    onMark={(area, pos) => onOpenIntelligence(area, pos)}
                   />
                   <div className="compare-img-overlay" />
                   {chosen === key && <div className="compare-chosen-badge">✓ Scelto</div>}
@@ -640,32 +904,29 @@ function CompareCard({ decision, onChoice, choices, dna, onReact, onOpenIntellig
   );
 }
 
-// ─── MOBILE SWIPE COMPARE — fix gesture, draw layer overlay ─────────────────
+// ─── MOBILE BEFORE/AFTER SLIDER ──────────────────────────────────────────────
 function MobileCompareCard({ decision, onChoice, choices, dna, onReact, onOpenIntelligence }) {
   const [ref, inView] = useInView(0.15);
   const chosen = choices[decision.id];
-  const [active, setActive] = useState("A");
-  const imgRef = useRef(null);
-  const touchStart = useRef(null);
-  const stageRef = useRef(null);
+  const [sliderX, setSliderX] = useState(50);
+  const wrapRef = useRef(null);
+  const imgARef = useRef(null);
+  const dragging = useRef(false);
 
-  const onTouchStart = (e) => {
-    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  const getPct = (clientX) => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return 50;
+    return Math.max(2, Math.min(98, ((clientX - rect.left) / rect.width) * 100));
   };
-  const onTouchEnd = (e) => {
-    if (!touchStart.current) return;
-    const dx = e.changedTouches[0].clientX - touchStart.current.x;
-    const dy = e.changedTouches[0].clientY - touchStart.current.y;
-    const dt = Date.now() - touchStart.current.t;
-    // swipe orizzontale veloce e dominante rispetto al verticale
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 600) {
-      setActive((prev) => (prev === "A" ? "B" : "A"));
-    }
-    touchStart.current = null;
+  const onPointerDown = (e) => {
+    dragging.current = true;
+    wrapRef.current?.setPointerCapture?.(e.pointerId);
+    setSliderX(getPct(e.clientX));
   };
+  const onPointerMove = (e) => { if (dragging.current) setSliderX(getPct(e.clientX)); };
+  const onPointerUp = () => { dragging.current = false; };
 
-  const opt = active === "A" ? decision.optionA : decision.optionB;
-  const img = active === "A" ? decision.imageA : decision.imageB;
+  const dominantVersion = sliderX < 50 ? "B" : "A";
 
   return (
     <section ref={ref} className={`mcompare-section ${inView ? "in-view" : ""}`}>
@@ -673,35 +934,55 @@ function MobileCompareCard({ decision, onChoice, choices, dna, onReact, onOpenIn
         <div className="session-tag">VISIONE · {decision.session}</div>
         <h2 className="decision-h2">{decision.title}</h2>
         <p className="decision-q">{decision.question}</p>
-        <p className="draw-hint">✎ Disegna col dito per segnalare un'area</p>
+        <p className="draw-hint">✎ Trascina il cursore · Disegna per annotare</p>
       </div>
 
-      <div className="mcompare-stage" ref={stageRef}>
-        <div className="mcompare-swipe-zone" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <Img imgRef={imgRef} src={img} alt={opt.label} className="mcompare-img" />
-        </div>
-        <DrawLayer decisionId={decision.id} imageRef={imgRef} onMark={(area) => onOpenIntelligence(area)} />
-        <div className="mcompare-img-overlay" />
-
-        <div className="mcompare-dots">
-          <span className={`mdot ${active === "A" ? "on" : ""}`} onClick={() => setActive("A")} />
-          <span className={`mdot ${active === "B" ? "on" : ""}`} onClick={() => setActive("B")} />
-        </div>
-        <div className="mcompare-swipe-hint">← swipe →</div>
-        <div className="mcompare-label">
-          <span className="mcompare-name">{opt.label}</span>
-          <span className="mcompare-tag">{opt.tag}</span>
+      <div
+        ref={wrapRef}
+        className="mcompare-slider-wrap"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <Img imgRef={imgARef} src={decision.imageA} alt={decision.optionA.label} className="mcompare-slider-img" />
+        <Img
+          src={decision.imageB}
+          alt={decision.optionB.label}
+          className="mcompare-slider-img mcompare-slider-img-b"
+          style={{ clipPath: `inset(0 0 0 ${sliderX}%)` }}
+        />
+        <DrawLayer decisionId={decision.id} imageRef={imgARef} onMark={(area, pos) => onOpenIntelligence(area, pos)} />
+        <div className="mcompare-slider-line" style={{ left: `${sliderX}%` }} />
+        <div className="mcompare-slider-handle" style={{ left: `${sliderX}%` }}>⇔</div>
+        <div className="mcompare-slider-labels">
+          <span className="mcompare-slider-label">{decision.optionA.label}</span>
+          <span className="mcompare-slider-label">{decision.optionB.label}</span>
         </div>
       </div>
 
-      <p className="mcompare-desc">{opt.description}</p>
+      <div style={{ padding: "18px 24px 0" }}>
+        <p className="mcompare-tag" style={{ marginBottom: 6 }}>
+          {dominantVersion === "A" ? decision.optionA.tag : decision.optionB.tag}
+        </p>
+        <p className="mcompare-desc">
+          {dominantVersion === "A" ? decision.optionA.description : decision.optionB.description}
+        </p>
+      </div>
 
-      <button className={`mcompare-choose ${chosen === active ? "chosen" : ""}`} onClick={() => onChoice(decision.id, active)}>
-        {chosen === active ? "✓ Versione scelta" : `Scegli ${opt.label} →`}
-      </button>
+      <div style={{ display: "flex", gap: 10, margin: "16px 24px 0" }}>
+        {["A","B"].map((k) => {
+          const o = k === "A" ? decision.optionA : decision.optionB;
+          return (
+            <button key={k} className={`mcompare-choose ${chosen === k ? "chosen" : ""}`}
+              style={{ flex: 1, margin: 0 }} onClick={() => onChoice(decision.id, k)}>
+              {chosen === k ? `✓ ${o.label}` : `Scegli ${o.label}`}
+            </button>
+          );
+        })}
+      </div>
 
       <ReactionBar decisionId={decision.id} dna={dna} onReact={onReact} onOpenIntelligence={onOpenIntelligence} />
-
       {chosen && <div className="confirmed-bar">Aggiunto al Project DNA ↓</div>}
     </section>
   );
@@ -906,7 +1187,7 @@ export default function App() {
   const [choices, setChoices] = useState({});
   const [dna, setDna] = useState(loadDNA);
   const [sent, setSent] = useState(false);
-  const [piArea, setPiArea] = useState(null); // se non null, mostra ProjectIntelligenceCard
+  const [piState, setPiState] = useState(null); // {area, x, y} se non null
   const isMobile = useIsMobile();
   const firstRef = useRef(null);
 
@@ -943,10 +1224,10 @@ export default function App() {
             {DECISIONS.map((d) =>
               isMobile ? (
                 <MobileCompareCard key={d.id} decision={d} onChoice={handleChoice} choices={choices} dna={dna}
-                  onReact={handleReact} onOpenIntelligence={setPiArea} />
+                  onReact={handleReact} onOpenIntelligence={(area, pos) => setPiState(pos ? { area, ...pos } : { area, x: window.innerWidth/2, y: window.innerHeight/2 })} />
               ) : (
                 <CompareCard key={d.id} decision={d} onChoice={handleChoice} choices={choices} dna={dna}
-                  onReact={handleReact} onOpenIntelligence={setPiArea} />
+                  onReact={handleReact} onOpenIntelligence={(area, pos) => setPiState(pos ? { area, ...pos } : { area, x: window.innerWidth/2, y: window.innerHeight/2 })} />
               )
             )}
 
@@ -957,10 +1238,10 @@ export default function App() {
         </>
       )}
 
-      {piArea && (
+      {piState && (
         <ProjectIntelligenceCard
-          area={piArea}
-          onClose={() => setPiArea(null)}
+          area={piState.area} anchorX={piState.x} anchorY={piState.y}
+          onClose={() => setPiState(null)}
           onValidated={handleValidated}
         />
       )}

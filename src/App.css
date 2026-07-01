@@ -452,6 +452,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 
 .mobile-slider__handle {
   position: absolute;
+  z-index: 10;
   top: 50%;
   left: var(--slider-pos, 50%);
   transform: translate(-50%, -50%);
@@ -491,6 +492,42 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   inset: 0;
   z-index: 5;
   cursor: crosshair;
+  pointer-events: none;
+}
+
+.draw-canvas.is-active {
+  pointer-events: auto;
+}
+
+.annotation-markers {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.annotation-marker {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid var(--bronze-glow);
+  background: rgba(13, 12, 10, 0.82);
+  color: var(--bronze-glow);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 16px rgba(226, 184, 118, 0.48);
+  pointer-events: auto;
+  z-index: 8;
+}
+
+.annotation-marker:hover {
+  background: var(--bronze-glow);
+  color: var(--ink);
 }
 
 .edita-hint {
@@ -541,6 +578,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   z-index: 80;
   width: min(320px, 86vw);
   animation: pi-in 0.22s var(--ease);
+}
+
+.pi-anchor--mobile {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 88px;
+  top: auto;
+  width: auto;
+  transform: none;
 }
 
 @keyframes pi-in {

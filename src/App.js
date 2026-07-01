@@ -1,53 +1,53 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 
 /* ============================================================
-   IEL — Interactive Experience Layer — Villa 127/C
+   IEL â€” Interactive Experience Layer â€” Villa 127/C
    App.js v0.8
 
    Cosa cambia rispetto a v0.7:
-   - Nav funzionante (Progetto / Edita / Intelligence / DNA) — dal doc "Architectural
+   - Nav funzionante (Progetto / Edita / Intelligence / DNA) â€” dal doc "Architectural
      Decision Intelligence Engine", senza toccare il naming bloccato "Project Intelligence".
    - "Edita" diventa il nome dell'AZIONE di annotazione (disegnare sul piano),
      distinta dal popup AI che resta "Project Intelligence".
    - Project DNA ha un nuovo campo `system_feedback`: note interne per l'architetto,
      MAI mostrate al cliente, generate insieme all'interpretazione AI.
    - L'AI risponde sempre in JSON strutturato (interpretation, design_intent,
-     open_questions, system_feedback) — il testo che vede il cliente è SOLO
+     open_questions, system_feedback) â€” il testo che vede il cliente Ã¨ SOLO
      `design_intent`, letto da quel JSON.
-   - Selettore materiali: non è un flusso separato, sono chip che confermano la
-     materialità implicita nella scelta A/B già esistente (Calacatta vs materica calda).
+   - Selettore materiali: non Ã¨ un flusso separato, sono chip che confermano la
+     materialitÃ  implicita nella scelta A/B giÃ  esistente (Calacatta vs materica calda).
    - Blur del piano: mai durante il disegno, opzionale/soft quando Project
-     Intelligence è aperta e non si sta disegnando. Default: nessun blur.
+     Intelligence Ã¨ aperta e non si sta disegnando. Default: nessun blur.
 
    Cosa NON cambia (bloccato, v0.7):
-   - Reazioni emoji 😍 🤔 ❌
+   - Reazioni emoji ðŸ˜ ðŸ¤” âŒ
    - Email architetto con DNA completo + reazioni + intenzioni validate
    - Prompt Lychee editabile prima dell'invio
    - Project DNA persistente in localStorage, sempre append mai overwrite
    - Canvas di disegno sopra l'immagine (stesso nodo, non riquadro separato)
    - 8 placeholder (2 sezioni, 4 prospetti, interrato, giardino)
    - Naming "Project Intelligence"
-   - Flusso: intent → thinking 1.4s → confirm → saved
+   - Flusso: intent â†’ thinking 1.4s â†’ confirm â†’ saved
    ============================================================ */
 
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
 
 const QUICK_CHOICES = [
-  "Più privacy",
-  "Più luce naturale",
+  "PiÃ¹ privacy",
+  "PiÃ¹ luce naturale",
   "Disposizione arredi",
-  "Più verde",
+  "PiÃ¹ verde",
   "Costo",
-  "Altro…",
+  "Altroâ€¦",
 ];
 
 const DECISIONS = [
   {
     id: "piano_terra",
     title: "Piano Terra",
-    eyebrow: "Sessione Visione — 01",
+    eyebrow: "Sessione Visione â€” 01",
     hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
     optionA: {
       label: "Versione I",
@@ -71,7 +71,7 @@ const DECISIONS = [
   {
     id: "piano_primo",
     title: "Piano Primo",
-    eyebrow: "Sessione Visione — 02",
+    eyebrow: "Sessione Visione â€” 02",
     hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
     optionA: {
       label: "Versione I",
@@ -92,19 +92,19 @@ const DECISIONS = [
 ];
 
 const PLACEHOLDERS = [
-  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤" },
-  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥" },
-  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧" },
-  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨" },
-  { id: "prospetto_est", label: "Prospetto Est", icon: "◩" },
-  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪" },
-  { id: "interrato", label: "Piano interrato", icon: "▨" },
-  { id: "giardino", label: "Giardino e pertinenze", icon: "❖" },
+  { id: "sezione_long", label: "Sezione longitudinale", icon: "â–¤" },
+  { id: "sezione_trasv", label: "Sezione trasversale", icon: "â–¥" },
+  { id: "prospetto_nord", label: "Prospetto Nord", icon: "â—§" },
+  { id: "prospetto_sud", label: "Prospetto Sud", icon: "â—¨" },
+  { id: "prospetto_est", label: "Prospetto Est", icon: "â—©" },
+  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "â—ª" },
+  { id: "interrato", label: "Piano interrato", icon: "â–¨" },
+  { id: "giardino", label: "Giardino e pertinenze", icon: "â–" },
 ];
 
 function emptyDNA() {
   return {
-    progetto: "Villa 127/C — Noicattaro",
+    progetto: "Villa 127/C â€” Noicattaro",
     cliente: "Gabriele e Ludovica",
     creato: new Date().toISOString(),
     stile: [],
@@ -116,8 +116,9 @@ function emptyDNA() {
     elementi_rifiutati: [],
     decisioni_raw: {},
     reazioni: {},
+    annotations: [],
     intenzioni_validate: [],
-    // NUOVO — solo per architetto, mai mostrato al cliente
+    // NUOVO â€” solo per architetto, mai mostrato al cliente
     system_feedback: [],
   };
 }
@@ -133,7 +134,7 @@ function loadDNA() {
   }
 }
 
-/* ---------------- AI LAYER — output JSON rigoroso ---------------- */
+/* ---------------- AI LAYER â€” output JSON rigoroso ---------------- */
 
 async function askProjectIntelligence({ area, quickChoice, customText }) {
   const userPayload = {
@@ -150,9 +151,9 @@ Devi rispondere SOLO con un oggetto JSON valido, nessun testo fuori dal JSON,
 nessun preambolo, nessun code fence. Schema esatto:
 {
   "interpretation": "breve interpretazione tecnica dell'intento, 1 frase",
-  "design_intent": "testo in italiano, tono caldo e professionale, rivolto al cliente, che inizia con 'Ho notato che hai segnato ' + l'area, poi spiega cosa cambierà nel progetto in base all'intento scelto. Max 3 frasi.",
-  "open_questions": ["eventuali domande aperte per l'architetto, array di stringhe, può essere vuoto"],
-  "system_feedback": "nota interna per l'architetto sul pattern comportamentale del cliente osservato in questa interazione — MAI visibile al cliente, 1 frase"
+  "design_intent": "testo in italiano, tono caldo e professionale, rivolto al cliente, che inizia con 'Ho notato che hai segnato ' + l'area, poi spiega cosa cambierÃ  nel progetto in base all'intento scelto. Max 3 frasi.",
+  "open_questions": ["eventuali domande aperte per l'architetto, array di stringhe, puÃ² essere vuoto"],
+  "system_feedback": "nota interna per l'architetto sul pattern comportamentale del cliente osservato in questa interazione â€” MAI visibile al cliente, 1 frase"
 }`;
 
   try {
@@ -184,7 +185,7 @@ nessun preambolo, nessun code fence. Schema esatto:
       interpretation: "",
       design_intent: `Ho notato che hai segnato ${area}. Terremo conto di questa indicazione nella prossima iterazione.`,
       open_questions: [],
-      system_feedback: "AI non raggiungibile in questa interazione — verificare manualmente.",
+      system_feedback: "AI non raggiungibile in questa interazione â€” verificare manualmente.",
     };
   }
 }
@@ -378,13 +379,13 @@ function BottomNav({ onNavigate }) {
   return (
     <div className="bottom-nav">
       <button className="bottom-nav__btn" onClick={() => onNavigate("progetto")} aria-label="Home">
-        🏠
+        ðŸ 
       </button>
       <button className="bottom-nav__btn" onClick={() => onNavigate("edita")} aria-label="Edita">
-        ✎
+        âœŽ
       </button>
       <button className="bottom-nav__btn" onClick={() => onNavigate("dna")} aria-label="DNA">
-        🧬
+        ðŸ§¬
       </button>
     </div>
   );
@@ -392,7 +393,7 @@ function BottomNav({ onNavigate }) {
 
 /* ---------------- DRAW LAYER (azione "Edita") ---------------- */
 
-function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef }) {
+function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef, annotations = [], onAnnotationSelect }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const points = useRef([]);
@@ -424,7 +425,9 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   const onPointerDown = (e) => {
+    if (!isDrawing) return;
     e.preventDefault();
+    e.stopPropagation();
     drawing.current = true;
     points.current = [getPos(e)];
     onDrawingChange(true);
@@ -433,6 +436,8 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
 
   const onPointerMove = (e) => {
     if (!drawing.current) return;
+    e.preventDefault();
+    e.stopPropagation();
     const pos = getPos(e);
     points.current.push(pos);
     const canvas = canvasRef.current;
@@ -451,6 +456,8 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
 
   const onPointerUp = (e) => {
     if (!drawing.current) return;
+    e.preventDefault();
+    e.stopPropagation();
     drawing.current = false;
     const canvas = canvasRef.current;
     const pts = points.current;
@@ -470,20 +477,42 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={"draw-canvas" + (isDrawing ? " is-flashing" : "")}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className={"draw-canvas" + (isDrawing ? " is-active is-flashing" : "")}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+      />
+      <div className="annotation-markers">
+        {annotations.map((annotation, index) => (
+          <button
+            key={annotation.id}
+            className="annotation-marker"
+            style={{
+              left: `${annotation.fx * 100}%`,
+              top: `${annotation.fy * 100}%`,
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAnnotationSelect(annotation);
+            }}
+            aria-label={`Riapri annotazione ${index + 1}: ${annotation.area}`}
+          >
+            {index + 1}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
 /* ---------------- REACTION BAR ---------------- */
 
 function ReactionBar({ decisionId, reaction, onReact }) {
-  const emojis = ["😍", "🤔", "❌"];
+  const emojis = ["ðŸ˜", "ðŸ¤”", "âŒ"];
   return (
     <div className="reaction-bar">
       {emojis.map((e) => (
@@ -501,19 +530,21 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
-function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onClose }) {
+function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onClose, isMobile }) {
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
 
-  const style = {
-    left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
-    top: placeAbove ? anchor.y - 12 : anchor.y + 24,
-    transform: placeAbove ? "translateY(-100%)" : "none",
-  };
+  const style = isMobile
+    ? {}
+    : {
+        left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
+        top: placeAbove ? anchor.y - 12 : anchor.y + 24,
+        transform: placeAbove ? "translateY(-100%)" : "none",
+      };
 
   return (
-    <div className="pi-anchor" style={style}>
-      <div className={"pi-arrow " + (placeAbove ? "pi-arrow--above" : "pi-arrow--below")} />
+    <div className={"pi-anchor" + (isMobile ? " pi-anchor--mobile" : "")} style={style}>
+      {!isMobile && <div className={"pi-arrow " + (placeAbove ? "pi-arrow--above" : "pi-arrow--below")} />}
       <div className="pi-card">
         <div className="pi-card__eyebrow">Project Intelligence</div>
 
@@ -529,16 +560,16 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
                 </button>
               ))}
             </div>
-            {quickChoice === "Altro…" && (
+            {quickChoice === "Altroâ€¦" && (
               <textarea
                 className="pi-custom-input"
-                placeholder="Scrivi cosa vorresti cambiare…"
+                placeholder="Scrivi cosa vorresti cambiareâ€¦"
                 value={customText}
                 onChange={(e) => onCustomChange(e.target.value)}
                 autoFocus
               />
             )}
-            {quickChoice === "Altro…" && customText.trim() && (
+            {quickChoice === "Altroâ€¦" && customText.trim() && (
               <button className="pi-btn pi-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={onConfirm}>
                 Invia
               </button>
@@ -548,7 +579,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
 
         {step === "thinking" && (
           <div className="pi-thinking">
-            <div className="pi-thinking__label">Project Intelligence sta elaborando…</div>
+            <div className="pi-thinking__label">Project Intelligence sta elaborandoâ€¦</div>
             <div className="pi-thinking__bar">
               <div className="pi-thinking__bar-fill" />
             </div>
@@ -561,7 +592,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
             {aiResult.open_questions && aiResult.open_questions.length > 0 && (
               <div className="pi-confirm__questions">
                 {aiResult.open_questions.map((q, i) => (
-                  <div key={i}>· {q}</div>
+                  <div key={i}>Â· {q}</div>
                 ))}
               </div>
             )}
@@ -572,10 +603,10 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
             />
             <div className="pi-confirm__actions">
               <button className="pi-btn" onClick={onClose}>
-                ✏ Modifica
+                âœ Modifica
               </button>
               <button className="pi-btn pi-btn--primary" onClick={onConfirm}>
-                ✓ Conferma
+                âœ“ Conferma
               </button>
             </div>
           </>
@@ -583,7 +614,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
 
         {step === "saved" && (
           <div className="pi-saved">
-            <span className="pi-saved__check">✓</span>
+            <span className="pi-saved__check">âœ“</span>
             Aggiunto al Project DNA
           </div>
         )}
@@ -612,7 +643,7 @@ function useScrollParallax(ref) {
   return progress;
 }
 
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali }) {
+function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, annotations, onAnnotationSelect }) {
   const cardRef = useRef(null);
   const frameRef = useRef(null);
   const progress = useScrollParallax(cardRef);
@@ -632,12 +663,14 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
         <img src={option.image} alt={option.label} className="compare-card__image" />
         <DrawLayer
           hotspots={decision.hotspots}
-          isDrawing={isDrawing}
+          isDrawing={editaEnabled}
           onDrawingChange={onDraw.setDrawing}
           onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, frameRef)}
           containerRef={frameRef}
+          annotations={annotations}
+          onAnnotationSelect={(annotation) => onAnnotationSelect(annotation, frameRef)}
         />
-        <span className="edita-hint">Edita — disegna per lasciare un segno</span>
+        <span className="edita-hint">Edita â€” disegna per lasciare un segno</span>
       </div>
       <div className="compare-card__body">
         <div className="compare-card__label">{option.label}</div>
@@ -653,7 +686,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
           className={"compare-card__choose" + (chosen ? " is-chosen" : "")}
           onClick={() => onChoose(decision.id, optionKey, option)}
         >
-          {chosen ? "✓ Scelto" : `Scegli ${option.label}`}
+          {chosen ? "âœ“ Scelto" : `Scegli ${option.label}`}
         </button>
       </div>
     </div>
@@ -662,7 +695,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
 
 /* ---------------- MOBILE COMPARE SLIDER ---------------- */
 
-function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose }) {
+function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, annotations, onAnnotationSelect }) {
   const [pos, setPos] = useState(50);
   const wrapRef = useRef(null);
   const dragging = useRef(false);
@@ -674,14 +707,20 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose }) {
   };
 
   const onHandleDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     dragging.current = true;
     e.target.setPointerCapture(e.pointerId);
   };
   const onHandleMove = (e) => {
     if (!dragging.current) return;
+    e.preventDefault();
+    e.stopPropagation();
     setFromClientX(e.clientX);
   };
-  const onHandleUp = () => {
+  const onHandleUp = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     dragging.current = false;
   };
 
@@ -702,10 +741,12 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose }) {
         />
         <DrawLayer
           hotspots={decision.hotspots}
-          isDrawing={isDrawing}
+          isDrawing={editaEnabled}
           onDrawingChange={onDraw.setDrawing}
           onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
           containerRef={wrapRef}
+          annotations={annotations}
+          onAnnotationSelect={(annotation) => onAnnotationSelect(annotation, wrapRef)}
         />
         <div className="mobile-slider__divider" />
         <div
@@ -714,7 +755,7 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose }) {
           onPointerMove={onHandleMove}
           onPointerUp={onHandleUp}
         >
-          ⇔
+          â‡”
         </div>
       </div>
       <div className="mobile-slider__desc">{dominant.desc}</div>
@@ -766,7 +807,7 @@ function DNAViewPanel({ dna, onClose }) {
         <div className="side-panel__header">
           <div className="side-panel__title">Project DNA</div>
           <button className="side-panel__close" onClick={onClose}>
-            ×
+            Ã—
           </button>
         </div>
         {categories.map(([key, label]) => (
@@ -799,7 +840,7 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
         <div className="side-panel__header">
           <div className="side-panel__title">Project Intelligence</div>
           <button className="side-panel__close" onClick={onClose}>
-            ×
+            Ã—
           </button>
         </div>
         <div className="dna-category__label" style={{ marginBottom: 14 }}>
@@ -811,7 +852,7 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
         {dna.intenzioni_validate.map((rec, i) => (
           <div className="intent-record" key={i}>
             <div className="intent-record__area">
-              {rec.area} — {rec.intent_label}
+              {rec.area} â€” {rec.intent_label}
             </div>
             <div>{rec.design_intent}</div>
           </div>
@@ -831,6 +872,7 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [editaEnabled, setEditaEnabled] = useState(false);
   const [navActive, setNavActive] = useState("progetto");
   const [showDNA, setShowDNA] = useState(false);
   const [showIntelligenceSummary, setShowIntelligenceSummary] = useState(false);
@@ -876,6 +918,7 @@ export default function App() {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
     } else if (id === "edita") {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
+      setEditaEnabled(true);
       setIsDrawing(true);
       setTimeout(() => setIsDrawing(false), 1600);
     } else if (id === "intelligence") {
@@ -899,13 +942,6 @@ export default function App() {
   const handleReact = (decisionId, emoji) => {
     setReactions((prev) => ({ ...prev, [decisionId]: emoji }));
     setDna((prev) => ({ ...prev, reazioni: { ...prev.reazioni, [decisionId]: emoji } }));
-
-    if (emoji === "🤔" || emoji === "❌") {
-      openPopupForArea(decisionId, "la scelta appena espressa", {
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-      });
-    }
   };
 
   const openPopupForArea = (decisionId, area, anchorPx) => {
@@ -926,7 +962,52 @@ export default function App() {
   const handleMark = (decisionId, area, localAnchor, wrapRef) => {
     const rect = wrapRef.current.getBoundingClientRect();
     const anchor = { x: rect.left + localAnchor.x, y: rect.top + localAnchor.y };
-    openPopupForArea(decisionId, area, anchor);
+    const annotation = {
+      id: `${decisionId}-${Date.now()}`,
+      decisionId,
+      area,
+      fx: localAnchor.x / rect.width,
+      fy: localAnchor.y / rect.height,
+      anchor,
+      aiResult: null,
+      quickChoice: null,
+      customText: "",
+      ts: new Date().toISOString(),
+    };
+    setDna((prev) => ({ ...prev, annotations: [...(prev.annotations || []), annotation] }));
+    setEditaEnabled(false);
+    setPopup({
+      open: true,
+      decisionId,
+      annotationId: annotation.id,
+      area,
+      anchor,
+      placeAbove: anchor.y > window.innerHeight - 260,
+      step: "intent",
+      quickChoice: null,
+      customText: "",
+      aiResult: null,
+    });
+  };
+
+  const handleAnnotationSelect = (annotation, wrapRef) => {
+    const rect = wrapRef.current.getBoundingClientRect();
+    const anchor = {
+      x: rect.left + annotation.fx * rect.width,
+      y: rect.top + annotation.fy * rect.height,
+    };
+    setPopup({
+      open: true,
+      decisionId: annotation.decisionId,
+      annotationId: annotation.id,
+      area: annotation.area,
+      anchor,
+      placeAbove: anchor.y > window.innerHeight - 260,
+      step: annotation.aiResult ? "confirm" : "intent",
+      quickChoice: annotation.quickChoice || null,
+      customText: annotation.customText || "",
+      aiResult: annotation.aiResult || null,
+    });
   };
 
   const runIntelligence = async (quickChoice, customText) => {
@@ -936,10 +1017,18 @@ export default function App() {
       new Promise((res) => setTimeout(res, 1400)),
     ]);
     setPopup((p) => ({ ...p, step: "confirm", aiResult }));
+    setDna((prev) => ({
+      ...prev,
+      annotations: (prev.annotations || []).map((annotation) =>
+        annotation.id === popup.annotationId
+          ? { ...annotation, quickChoice, customText, aiResult }
+          : annotation
+      ),
+    }));
   };
 
   const handleQuickChoice = (choice) => {
-    if (choice === "Altro…") {
+    if (choice === "Altroâ€¦") {
       setPopup((p) => ({ ...p, quickChoice: choice }));
       return;
     }
@@ -951,7 +1040,7 @@ export default function App() {
   };
 
   const handleConfirmCustom = () => {
-    runIntelligence("Altro…", popup.customText);
+    runIntelligence("Altroâ€¦", popup.customText);
   };
 
   const handleEditIntent = (val) => {
@@ -960,6 +1049,7 @@ export default function App() {
 
   const handleConfirmSaved = () => {
     const record = {
+      annotation_id: popup.annotationId,
       area: popup.area,
       intent_label: popup.quickChoice,
       design_intent: popup.aiResult.design_intent,
@@ -968,6 +1058,11 @@ export default function App() {
     setDna((prev) => ({
       ...prev,
       intenzioni_validate: [...prev.intenzioni_validate, record],
+      annotations: (prev.annotations || []).map((annotation) =>
+        annotation.id === popup.annotationId
+          ? { ...annotation, quickChoice: popup.quickChoice, aiResult: popup.aiResult, validated: true }
+          : annotation
+      ),
       system_feedback: popup.aiResult.system_feedback
         ? [
             ...prev.system_feedback,
@@ -986,28 +1081,28 @@ export default function App() {
       `Progetto: ${dna.progetto}`,
       `Cliente: ${dna.cliente}`,
       "",
-      "— DECISIONI —",
+      "â€” DECISIONI â€”",
       ...Object.entries(dna.decisioni_raw).map(([k, v]) => `${k}: ${v}`),
       "",
-      "— REAZIONI —",
+      "â€” REAZIONI â€”",
       ...Object.entries(dna.reazioni).map(([k, v]) => `${k}: ${v}`),
       "",
-      "— MATERIALI —",
-      dna.materiali.join(", ") || "—",
+      "â€” MATERIALI â€”",
+      dna.materiali.join(", ") || "â€”",
       "",
-      "— INTENZIONI VALIDATE —",
+      "â€” INTENZIONI VALIDATE â€”",
       ...dna.intenzioni_validate.map(
         (r) => `[${r.area}] ${r.intent_label || ""}: ${r.design_intent}`
       ),
       "",
-      "— PROMPT LYCHEE (editato dall'architetto) —",
+      "â€” PROMPT LYCHEE (editato dall'architetto) â€”",
       lycheePrompt,
       "",
-      "===== NOTE INTERNE — solo per architetto, non condivise col cliente =====",
+      "===== NOTE INTERNE â€” solo per architetto, non condivise col cliente =====",
       ...dna.system_feedback.map((f) => `[${f.area}] ${f.note}`),
     ].join("\n");
 
-    const subject = encodeURIComponent(`IEL — Project DNA — ${dna.progetto}`);
+    const subject = encodeURIComponent(`IEL â€” Project DNA â€” ${dna.progetto}`);
     const body = encodeURIComponent(dnaLines);
     window.location.href = `mailto:${ARCHITECT_EMAIL}?subject=${subject}&body=${body}`;
   };
@@ -1031,12 +1126,12 @@ export default function App() {
         <HeroMonolith />
         <div className="hero__grid" />
         <div className="hero__content">
-          <div className="hero__eyebrow">IEL · Design Iteration Engine</div>
+          <div className="hero__eyebrow">IEL Â· Design Iteration Engine</div>
           <h1 className="hero__title" data-text="Villa 127/C">
             Villa 127/C
           </h1>
           <p className="hero__subtitle">
-            Ogni scelta che fai qui diventa parte del Project DNA — e guida il prossimo render.
+            Ogni scelta che fai qui diventa parte del Project DNA â€” e guida il prossimo render.
           </p>
           <button className="hero__cta" onClick={() => handleNavigate("progetto")}>
             Inizia
@@ -1044,7 +1139,7 @@ export default function App() {
         </div>
       </section>
 
-      <div className="live-notice">● un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
+      <div className="live-notice">â— un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
 
       <div ref={decisionsRef}>
         {DECISIONS.map((decision) => (
@@ -1060,20 +1155,24 @@ export default function App() {
                   option={decision.optionA}
                   optionKey="optionA"
                   chosen={choices[decision.id] === "optionA"}
-                  isDrawing={isDrawing}
+                  isDrawing={editaEnabled}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
+                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
+                  onAnnotationSelect={handleAnnotationSelect}
                 />
                 <DesktopCompareCard
                   decision={decision}
                   option={decision.optionB}
                   optionKey="optionB"
                   chosen={choices[decision.id] === "optionB"}
-                  isDrawing={isDrawing}
+                  isDrawing={editaEnabled}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
+                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
+                  onAnnotationSelect={handleAnnotationSelect}
                 />
               </div>
             )}
@@ -1083,9 +1182,11 @@ export default function App() {
                 <MobileCompareCard
                   decision={decision}
                   chosen={choices[decision.id]}
-                  isDrawing={isDrawing}
+                  isDrawing={editaEnabled}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
+                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
+                  onAnnotationSelect={handleAnnotationSelect}
                 />
               </div>
             )}
@@ -1098,7 +1199,7 @@ export default function App() {
       <section className="decision-section">
         <div className="decision-section__eyebrow">Struttura</div>
         <h2 className="decision-section__title">Sezioni e Prospetti</h2>
-        <p className="decision-section__hint">In arrivo — i placeholder sono pronti a ricevere i file.</p>
+        <p className="decision-section__hint">In arrivo â€” i placeholder sono pronti a ricevere i file.</p>
       </section>
       <div className="placeholder-grid">
         {PLACEHOLDERS.map((p) => (
@@ -1116,7 +1217,7 @@ export default function App() {
           onChange={(e) => setLycheePrompt(e.target.value)}
         />
         <div className="send-section__internal-note">
-          L'email include anche le note interne (system feedback) — visibili solo a te, mai al cliente.
+          L'email include anche le note interne (system feedback) â€” visibili solo a te, mai al cliente.
         </div>
         <button className="send-section__cta" onClick={handleSendEmail}>
           Invia email all'architetto
@@ -1129,9 +1230,10 @@ export default function App() {
         popup={popup}
         onQuickChoice={handleQuickChoice}
         onCustomChange={handleCustomChange}
-        onConfirm={popup.quickChoice === "Altro…" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
+        onConfirm={popup.quickChoice === "Altroâ€¦" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
         onEdit={handleEditIntent}
         onClose={handleClosePopup}
+        isMobile={isMobile}
       />
 
       {showDNA && <DNAViewPanel dna={dna} onClose={() => setShowDNA(false)} />}
@@ -1141,3 +1243,4 @@ export default function App() {
     </div>
   );
 }
+

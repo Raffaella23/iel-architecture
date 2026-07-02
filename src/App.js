@@ -47,6 +47,50 @@ import "./App.css";
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
 
+// ── LOGIN — Google / Apple / email /////////////////////////////////////////
+// Google: per attivare il bottone reale serve un Client ID OAuth (gratuito).
+// Si crea su console.cloud.google.com → APIs & Services → Credenziali →
+// "Crea credenziali" → "ID client OAuth" → tipo "App web" → aggiungi il
+// dominio iel-architecture.vercel.app tra le origini autorizzate.
+// Finché questo resta vuoto, il bottone Google mostra solo un avviso, non è rotto.
+const GOOGLE_CLIENT_ID = ""; // <-- incolla qui il Client ID quando lo hai
+
+// Apple: "Sign in with Apple" richiede un Apple Developer Program attivo
+// (a pagamento) + un Services ID + verifica del dominio. Non lo colleghiamo
+// finché non hai queste credenziali: il bottone mostra una nota, non finge
+// un login che non può funzionare davvero.
+
+const SESSION_STORAGE_KEY = "iel_session_v1";
+const LOCAL_ACCOUNTS_KEY = "iel_local_accounts_v1";
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function saveSession(session) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+function clearSession() {
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+// ATTENZIONE: questo login email/password è solo un gate leggero lato client,
+// utile per riconoscere chi torna sul progetto — NON è autenticazione sicura
+// (le password restano nel localStorage del browser, non verificate da un
+// server). Va bene per una demo con un cliente fidato; prima di gestire dati
+// sensibili reali serve un vero backend (vedi roadmap Sprint 4).
+function loadLocalAccounts() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_ACCOUNTS_KEY) || "{}"); }
+  catch { return {}; }
+}
+function saveLocalAccounts(accounts) {
+  localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
 const QUICK_CHOICES = [
   "Più privacy",
   "Più luce naturale",
@@ -132,6 +176,8 @@ function emptyDNA() {
     intenzioni_validate: [],
     // NUOVO — solo per architetto, mai mostrato al cliente
     system_feedback: [],
+    // NUOVO — segni persistenti sul piano, riapribili durante tutta la sessione
+    annotation_markers: [], // [{ decisionId, area, xPct, yPct, design_intent, ts }]
   };
 }
 
@@ -362,7 +408,7 @@ function HeroMonolith() {
 
 /* ---------------- TOP NAV + BOTTOM NAV ---------------- */
 
-function TopNav({ active, onNavigate }) {
+function TopNav({ active, onNavigate, session, onLogout }) {
   const items = [
     { id: "progetto", label: "Progetto" },
     { id: "edita", label: "Edita" },
@@ -371,7 +417,12 @@ function TopNav({ active, onNavigate }) {
   ];
   return (
     <nav className="top-nav">
-      <span className="top-nav__brand">IEL ARCHITECT</span>
+      <span className="top-nav__brand">
+        IEL ARCHITECT
+        {session && session.provider !== "guest" && (
+          <span className="top-nav__session"> · {session.name || session.email}</span>
+        )}
+      </span>
       <div className="top-nav__links">
         {items.map((it) => (
           <button
@@ -382,6 +433,11 @@ function TopNav({ active, onNavigate }) {
             {it.label}
           </button>
         ))}
+        {session && (
+          <button className="top-nav__link top-nav__logout" onClick={onLogout}>
+            Esci
+          </button>
+        )}
       </div>
     </nav>
   );
@@ -405,7 +461,7 @@ function BottomNav({ onNavigate }) {
 
 /* ---------------- DRAW LAYER (azione "Edita") ---------------- */
 
-function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef }) {
+function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef, active = true }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const points = useRef([]);
@@ -437,6 +493,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   const onPointerDown = (e) => {
+    if (!active) return;
     e.preventDefault();
     drawing.current = true;
     points.current = [getPos(e)];
@@ -445,7 +502,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   const onPointerMove = (e) => {
-    if (!drawing.current) return;
+    if (!active || !drawing.current) return;
     const pos = getPos(e);
     points.current.push(pos);
     const canvas = canvasRef.current;
@@ -463,7 +520,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   const onPointerUp = (e) => {
-    if (!drawing.current) return;
+    if (!active || !drawing.current) return;
     drawing.current = false;
     const canvas = canvasRef.current;
     const pts = points.current;
@@ -473,7 +530,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
       const fx = avgX / canvas.width;
       const fy = avgY / canvas.height;
       const area = findArea(fx, fy);
-      onMark(area, { x: avgX, y: avgY });
+      onMark(area, { x: avgX, y: avgY }, { fx, fy });
     }
     setTimeout(() => {
       const ctx = canvas.getContext("2d");
@@ -486,10 +543,39 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
     <canvas
       ref={canvasRef}
       className={"draw-canvas" + (isDrawing ? " is-flashing" : "")}
+      style={{ pointerEvents: active ? "auto" : "none", cursor: active ? "crosshair" : "default" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     />
+  );
+}
+
+/* ---------------- EDITA TOGGLE — attivazione esplicita ---------------- */
+
+function EditaToggle({ active, onToggle }) {
+  return (
+    <button
+      className={"edita-toggle" + (active ? " is-active" : "")}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+    >
+      {active ? "✎ Edita attivo" : "✎ Attiva Edita"}
+    </button>
+  );
+}
+
+/* ---------------- ANNOTATION PIN — segno persistente, riapribile ---------------- */
+
+function AnnotationPin({ marker, onReopen }) {
+  return (
+    <button
+      className="annotation-pin"
+      style={{ left: `${marker.xPct * 100}%`, top: `${marker.yPct * 100}%` }}
+      onClick={(e) => { e.stopPropagation(); onReopen(marker, e); }}
+      title={marker.area}
+    >
+      <span className="annotation-pin__dot" />
+    </button>
   );
 }
 
@@ -600,6 +686,16 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
             Aggiunto al Project DNA
           </div>
         )}
+
+        {step === "recap" && aiResult && (
+          <>
+            <div className="pi-card__eyebrow" style={{ marginTop: -4 }}>Segno già validato</div>
+            <div className="pi-confirm__intent">{aiResult.design_intent}</div>
+            <button className="pi-btn" style={{ width: "100%" }} onClick={onClose}>
+              Chiudi
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -625,13 +721,14 @@ function useScrollParallax(ref) {
   return progress;
 }
 
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, onZoom }) {
+function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, onZoom, markers, onReopenMarker }) {
   const cardRef = useRef(null);
   const frameRef = useRef(null);
   const progress = useScrollParallax(cardRef);
   const scale = 1.22 - 0.22 * progress;
   const translate = 54 * (1 - progress);
   const rotate = (1 - progress) * 1.2;
+  const [editaActive, setEditaActive] = useState(false);
 
   const materialActive = dnaMateriali.includes(option.materiale);
 
@@ -647,9 +744,13 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
           hotspots={decision.hotspots}
           isDrawing={isDrawing}
           onDrawingChange={onDraw.setDrawing}
-          onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, frameRef)}
+          onMark={(area, anchor, frac) => onDraw.onMark(decision.id, area, anchor, frameRef, frac)}
           containerRef={frameRef}
+          active={editaActive}
         />
+        {markers.map((m, i) => (
+          <AnnotationPin key={i} marker={m} onReopen={onReopenMarker} />
+        ))}
         <button
           className="zoom-btn"
           onClick={(e) => { e.stopPropagation(); onZoom(option.image, option.label); }}
@@ -657,7 +758,8 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
         >
           ⤢
         </button>
-        <span className="edita-hint">Edita — disegna per lasciare un segno</span>
+        <EditaToggle active={editaActive} onToggle={() => setEditaActive((v) => !v)} />
+        {editaActive && <span className="edita-hint is-flashing">Edita — disegna per lasciare un segno</span>}
       </div>
       <div className="compare-card__body">
         <div className="compare-card__label">{option.label}</div>
@@ -682,8 +784,10 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
 
 /* ---------------- MOBILE COMPARE SLIDER ---------------- */
 
-function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZoom }) {
+function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZoom, markers, onReopenMarker }) {
   const [pos, setPos] = useState(50);
+  const [editaActive, setEditaActive] = useState(false);
+  const [sliderDragging, setSliderDragging] = useState(false);
   const wrapRef = useRef(null);
   const dragging = useRef(false);
 
@@ -695,6 +799,7 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
 
   const onHandleDown = (e) => {
     dragging.current = true;
+    setSliderDragging(true);
     e.target.setPointerCapture(e.pointerId);
   };
   const onHandleMove = (e) => {
@@ -703,6 +808,7 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
   };
   const onHandleUp = () => {
     dragging.current = false;
+    setSliderDragging(false);
   };
 
   const dominant = pos > 50 ? decision.optionA : decision.optionB;
@@ -725,10 +831,14 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
             hotspots={decision.hotspots}
             isDrawing={isDrawing}
             onDrawingChange={onDraw.setDrawing}
-            onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
+            onMark={(area, anchor, frac) => onDraw.onMark(decision.id, area, anchor, wrapRef, frac)}
             containerRef={wrapRef}
+            active={editaActive && !sliderDragging}
           />
         )}
+        {markers.map((m, i) => (
+          <AnnotationPin key={i} marker={m} onReopen={onReopenMarker} />
+        ))}
         <button
           className="zoom-btn"
           onClick={(e) => { e.stopPropagation(); onZoom(dominant.image, dominant.label); }}
@@ -746,6 +856,9 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
           ⇔
         </div>
       </div>
+      {chosen && (
+        <EditaToggle active={editaActive} onToggle={() => setEditaActive((v) => !v)} />
+      )}
       <div className="mobile-slider__desc">{dominant.desc}</div>
       <div className="mobile-choose-row">
         <button
@@ -962,11 +1075,145 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
   );
 }
 
+/* ---------------- AUTH GATE — Google / Apple / email ---------------- */
+
+function AuthGate({ onAuthenticated }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [appleNote, setAppleNote] = useState(false);
+  const googleBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential,
+      });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: "filled_black",
+        size: "large",
+        shape: "pill",
+        width: 280,
+        text: "continue_with",
+      });
+    };
+    document.body.appendChild(script);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleGoogleCredential = (response) => {
+    try {
+      // Decodifica solo lato client per leggere nome/email dal token Google —
+      // sufficiente per un gate leggero. Per proteggere dati sensibili andrebbe
+      // verificato lato server prima di fidarsi del contenuto.
+      const payload = JSON.parse(atob(response.credential.split(".")[1]));
+      onAuthenticated({ provider: "google", email: payload.email, name: payload.name, ts: new Date().toISOString() });
+    } catch {
+      setError("Accesso con Google non riuscito. Riprova.");
+    }
+  };
+
+  const handleEmailSubmit = (e) => {
+    e.preventDefault();
+    if (!email.trim() || password.length < 4) {
+      setError("Inserisci un'email valida e una password di almeno 4 caratteri.");
+      return;
+    }
+    const key = email.trim().toLowerCase();
+    const accounts = loadLocalAccounts();
+    if (accounts[key] && accounts[key].password !== password) {
+      setError("Password non corretta per questo indirizzo.");
+      return;
+    }
+    if (!accounts[key]) {
+      accounts[key] = { password, ts: new Date().toISOString() };
+      saveLocalAccounts(accounts);
+    }
+    setError("");
+    onAuthenticated({ provider: "email", email: key, name: key.split("@")[0], ts: new Date().toISOString() });
+  };
+
+  return (
+    <div className="auth-gate">
+      <div className="hero__grid" />
+      <div className="auth-card">
+        <div className="auth-card__eyebrow">IEL · Villa 127/C</div>
+        <h1 className="auth-card__title">Accedi al progetto</h1>
+        <p className="auth-card__sub">
+          Le tue scelte entrano nel Project DNA — accedi per iniziare o continuare da dove avevi lasciato.
+        </p>
+
+        <div className="auth-social">
+          {GOOGLE_CLIENT_ID ? (
+            <div ref={googleBtnRef} className="auth-google-mount" />
+          ) : (
+            <button
+              type="button"
+              className="auth-btn"
+              onClick={() => setError("Login Google non ancora configurato — serve un Client ID (vedi commento in App.js).")}
+            >
+              <span className="auth-btn__glyph">G</span> Continua con Google
+            </button>
+          )}
+          <button type="button" className="auth-btn" onClick={() => setAppleNote(true)}>
+            <span className="auth-btn__glyph"></span> Continua con Apple
+          </button>
+        </div>
+
+        {appleNote && (
+          <p className="auth-note">
+            Sign in with Apple richiede un Apple Developer Program attivo e un Services ID configurato.
+            Quando hai le credenziali dimmelo e lo colleghiamo.
+          </p>
+        )}
+
+        <div className="auth-divider"><span>oppure</span></div>
+
+        <form className="auth-form" onSubmit={handleEmailSubmit}>
+          <input
+            type="email"
+            placeholder="Email"
+            className="auth-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            className="auth-input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          {error && <div className="auth-error">{error}</div>}
+          <button type="submit" className="auth-submit">Accedi con email</button>
+        </form>
+
+        <button
+          type="button"
+          className="auth-skip"
+          onClick={() => onAuthenticated({ provider: "guest", email: null, name: "Ospite", ts: new Date().toISOString() })}
+        >
+          Continua come ospite →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ================================================================
    APP
    ================================================================ */
 
 export default function App() {
+  const [session, setSession] = useState(loadSession);
   const [dna, setDna] = useState(loadDNA);
   const [choices, setChoices] = useState({});
   const [reactions, setReactions] = useState({});
@@ -1055,7 +1302,7 @@ export default function App() {
     }
   };
 
-  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride) => {
+  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride, posPct) => {
     // placeAbove va deciso sullo spazio DISPONIBILE NELLA VIEWPORT, non sulla posizione
     // assoluta nella pagina — altrimenti da scrollati in basso il calcolo è sbagliato.
     const viewportY = viewportYOverride != null ? viewportYOverride : anchorPagePx.y - window.scrollY;
@@ -1070,17 +1317,39 @@ export default function App() {
       quickChoice: null,
       customText: "",
       aiResult: null,
+      posPct: posPct || null,
     });
   };
 
-  const handleMark = (decisionId, area, localAnchor, wrapRef) => {
+  const handleMark = (decisionId, area, localAnchor, wrapRef, frac) => {
     const rect = wrapRef.current.getBoundingClientRect();
     const viewportY = rect.top + localAnchor.y;
     const anchor = {
       x: rect.left + localAnchor.x + window.scrollX,
       y: viewportY + window.scrollY,
     };
-    openPopupForArea(decisionId, area, anchor, viewportY);
+    openPopupForArea(decisionId, area, anchor, viewportY, frac);
+  };
+
+  // Riapre un segno già validato (pin persistente) in modalità sola lettura — non richiama l'AI.
+  const handleReopenMarker = (marker, evt) => {
+    const rect = evt.currentTarget.getBoundingClientRect();
+    const viewportY = rect.top;
+    const anchor = { x: rect.left + rect.width / 2 + window.scrollX, y: viewportY + window.scrollY };
+    const viewportYAdj = viewportY;
+    const placeAbove = viewportYAdj > window.innerHeight - 260;
+    setPopup({
+      open: true,
+      decisionId: marker.decisionId,
+      area: marker.area,
+      anchor,
+      placeAbove,
+      step: "recap",
+      quickChoice: null,
+      customText: "",
+      aiResult: { design_intent: marker.design_intent, open_questions: [] },
+      posPct: null,
+    });
   };
 
   const runIntelligence = async (quickChoice, customText) => {
@@ -1128,6 +1397,19 @@ export default function App() {
             { area: popup.area, note: popup.aiResult.system_feedback, ts: new Date().toISOString() },
           ]
         : prev.system_feedback,
+      annotation_markers: popup.posPct
+        ? [
+            ...prev.annotation_markers,
+            {
+              decisionId: popup.decisionId,
+              area: popup.area,
+              xPct: popup.posPct.fx,
+              yPct: popup.posPct.fy,
+              design_intent: popup.aiResult.design_intent,
+              ts: record.ts,
+            },
+          ]
+        : prev.annotation_markers,
     }));
     setPopup((p) => ({ ...p, step: "saved" }));
     setTimeout(() => setPopup({ open: false }), 2200);
@@ -1170,9 +1452,22 @@ export default function App() {
   const madeDecisions = Object.keys(choices).length;
   const decisionProgress = totalDecisions ? madeDecisions / totalDecisions : 0;
 
+  const handleAuthenticated = (nextSession) => {
+    saveSession(nextSession);
+    setSession(nextSession);
+  };
+  const handleLogout = () => {
+    clearSession();
+    setSession(null);
+  };
+
+  if (!session) {
+    return <AuthGate onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <div className="iel-app">
-      <TopNav active={navActive} onNavigate={handleNavigate} />
+      <TopNav active={navActive} onNavigate={handleNavigate} session={session} onLogout={handleLogout} />
       <div className="progress-bar">
         <div
           className="progress-bar__fill"
@@ -1201,7 +1496,9 @@ export default function App() {
       <div className="live-notice">● un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
 
       <div ref={decisionsRef}>
-        {DECISIONS.map((decision) => (
+        {DECISIONS.map((decision) => {
+          const decisionMarkers = dna.annotation_markers.filter((m) => m.decisionId === decision.id);
+          return (
           <section className="decision-section" key={decision.id}>
             <div className="decision-section__eyebrow">{decision.eyebrow}</div>
             <h2 className="decision-section__title">{decision.title}</h2>
@@ -1219,6 +1516,8 @@ export default function App() {
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
                   onZoom={(src, alt) => setZoom({ src, alt })}
+                  markers={decisionMarkers}
+                  onReopenMarker={handleReopenMarker}
                 />
                 <DesktopCompareCard
                   decision={decision}
@@ -1230,6 +1529,8 @@ export default function App() {
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
                   onZoom={(src, alt) => setZoom({ src, alt })}
+                  markers={decisionMarkers}
+                  onReopenMarker={handleReopenMarker}
                 />
               </div>
             )}
@@ -1243,13 +1544,16 @@ export default function App() {
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   onZoom={(src, alt) => setZoom({ src, alt })}
+                  markers={decisionMarkers}
+                  onReopenMarker={handleReopenMarker}
                 />
               </div>
             )}
 
             <ReactionBar decisionId={decision.id} reaction={reactions[decision.id]} onReact={handleReact} />
           </section>
-        ))}
+          );
+        })}
       </div>
 
       <BuildingOverviewSection onZoom={(src, alt) => setZoom({ src, alt })} />

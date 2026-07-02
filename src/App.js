@@ -1,53 +1,66 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 
 /* ============================================================
-   IEL â€” Interactive Experience Layer â€” Villa 127/C
-   App.js v0.8
+   IEL — Interactive Experience Layer — Villa 127/C
+   App.js v0.9 — fix mirati, nessuna riscrittura
 
-   Cosa cambia rispetto a v0.7:
-   - Nav funzionante (Progetto / Edita / Intelligence / DNA) â€” dal doc "Architectural
+   Fix di questa versione:
+   - Mobile: "Edita" (disegno col dito) si attiva SOLO dopo aver scelto la versione,
+     evita conflitti col trascinamento dello slider prima della scelta.
+   - Bug di posizionamento dei popup risolto: .pi-anchor è position:absolute ma le
+     coordinate erano calcolate come fossero position:fixed (mancava lo scroll offset),
+     per questo i popup comparivano sempre vicino all'hero. Ora sono ancorati al punto
+     esatto (segno disegnato o bottone reazione toccato) in coordinate di pagina reali.
+   - Zoom immagini: nuovo ZoomViewer con pinch a due dita, rotellina, doppio tap/click,
+     trascinamento quando ingrandito. Disponibile su tutte le planimetrie e sulla
+     nuova galleria vista d'insieme.
+   - Nuova sezione "Vista d'insieme & Palette Materiali" con edificio1.png/edificio2.png,
+     zoomabile per leggere i dettagli materici.
+
+   v0.8 — Cosa cambia rispetto a v0.7:
+   - Nav funzionante (Progetto / Edita / Intelligence / DNA) — dal doc "Architectural
      Decision Intelligence Engine", senza toccare il naming bloccato "Project Intelligence".
    - "Edita" diventa il nome dell'AZIONE di annotazione (disegnare sul piano),
      distinta dal popup AI che resta "Project Intelligence".
    - Project DNA ha un nuovo campo `system_feedback`: note interne per l'architetto,
      MAI mostrate al cliente, generate insieme all'interpretazione AI.
    - L'AI risponde sempre in JSON strutturato (interpretation, design_intent,
-     open_questions, system_feedback) â€” il testo che vede il cliente Ã¨ SOLO
+     open_questions, system_feedback) — il testo che vede il cliente è SOLO
      `design_intent`, letto da quel JSON.
-   - Selettore materiali: non Ã¨ un flusso separato, sono chip che confermano la
-     materialitÃ  implicita nella scelta A/B giÃ  esistente (Calacatta vs materica calda).
+   - Selettore materiali: non è un flusso separato, sono chip che confermano la
+     materialità implicita nella scelta A/B già esistente (Calacatta vs materica calda).
    - Blur del piano: mai durante il disegno, opzionale/soft quando Project
-     Intelligence Ã¨ aperta e non si sta disegnando. Default: nessun blur.
+     Intelligence è aperta e non si sta disegnando. Default: nessun blur.
 
    Cosa NON cambia (bloccato, v0.7):
-   - Reazioni emoji ðŸ˜ ðŸ¤” âŒ
+   - Reazioni emoji 😍 🤔 ❌
    - Email architetto con DNA completo + reazioni + intenzioni validate
    - Prompt Lychee editabile prima dell'invio
    - Project DNA persistente in localStorage, sempre append mai overwrite
    - Canvas di disegno sopra l'immagine (stesso nodo, non riquadro separato)
    - 8 placeholder (2 sezioni, 4 prospetti, interrato, giardino)
    - Naming "Project Intelligence"
-   - Flusso: intent â†’ thinking 1.4s â†’ confirm â†’ saved
+   - Flusso: intent → thinking 1.4s → confirm → saved
    ============================================================ */
 
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
 
 const QUICK_CHOICES = [
-  "PiÃ¹ privacy",
-  "PiÃ¹ luce naturale",
+  "Più privacy",
+  "Più luce naturale",
   "Disposizione arredi",
-  "PiÃ¹ verde",
+  "Più verde",
   "Costo",
-  "Altroâ€¦",
+  "Altro…",
 ];
 
 const DECISIONS = [
   {
     id: "piano_terra",
     title: "Piano Terra",
-    eyebrow: "Sessione Visione â€” 01",
+    eyebrow: "Sessione Visione — 01",
     hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
     optionA: {
       label: "Versione I",
@@ -71,7 +84,7 @@ const DECISIONS = [
   {
     id: "piano_primo",
     title: "Piano Primo",
-    eyebrow: "Sessione Visione â€” 02",
+    eyebrow: "Sessione Visione — 02",
     hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
     optionA: {
       label: "Versione I",
@@ -92,19 +105,19 @@ const DECISIONS = [
 ];
 
 const PLACEHOLDERS = [
-  { id: "sezione_long", label: "Sezione longitudinale", icon: "â–¤" },
-  { id: "sezione_trasv", label: "Sezione trasversale", icon: "â–¥" },
-  { id: "prospetto_nord", label: "Prospetto Nord", icon: "â—§" },
-  { id: "prospetto_sud", label: "Prospetto Sud", icon: "â—¨" },
-  { id: "prospetto_est", label: "Prospetto Est", icon: "â—©" },
-  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "â—ª" },
-  { id: "interrato", label: "Piano interrato", icon: "â–¨" },
-  { id: "giardino", label: "Giardino e pertinenze", icon: "â–" },
+  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤" },
+  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥" },
+  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧" },
+  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨" },
+  { id: "prospetto_est", label: "Prospetto Est", icon: "◩" },
+  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪" },
+  { id: "interrato", label: "Piano interrato", icon: "▨" },
+  { id: "giardino", label: "Giardino e pertinenze", icon: "❖" },
 ];
 
 function emptyDNA() {
   return {
-    progetto: "Villa 127/C â€” Noicattaro",
+    progetto: "Villa 127/C — Noicattaro",
     cliente: "Gabriele e Ludovica",
     creato: new Date().toISOString(),
     stile: [],
@@ -116,9 +129,8 @@ function emptyDNA() {
     elementi_rifiutati: [],
     decisioni_raw: {},
     reazioni: {},
-    annotations: [],
     intenzioni_validate: [],
-    // NUOVO â€” solo per architetto, mai mostrato al cliente
+    // NUOVO — solo per architetto, mai mostrato al cliente
     system_feedback: [],
   };
 }
@@ -134,7 +146,7 @@ function loadDNA() {
   }
 }
 
-/* ---------------- AI LAYER â€” output JSON rigoroso ---------------- */
+/* ---------------- AI LAYER — output JSON rigoroso ---------------- */
 
 async function askProjectIntelligence({ area, quickChoice, customText }) {
   const userPayload = {
@@ -151,9 +163,9 @@ Devi rispondere SOLO con un oggetto JSON valido, nessun testo fuori dal JSON,
 nessun preambolo, nessun code fence. Schema esatto:
 {
   "interpretation": "breve interpretazione tecnica dell'intento, 1 frase",
-  "design_intent": "testo in italiano, tono caldo e professionale, rivolto al cliente, che inizia con 'Ho notato che hai segnato ' + l'area, poi spiega cosa cambierÃ  nel progetto in base all'intento scelto. Max 3 frasi.",
-  "open_questions": ["eventuali domande aperte per l'architetto, array di stringhe, puÃ² essere vuoto"],
-  "system_feedback": "nota interna per l'architetto sul pattern comportamentale del cliente osservato in questa interazione â€” MAI visibile al cliente, 1 frase"
+  "design_intent": "testo in italiano, tono caldo e professionale, rivolto al cliente, che inizia con 'Ho notato che hai segnato ' + l'area, poi spiega cosa cambierà nel progetto in base all'intento scelto. Max 3 frasi.",
+  "open_questions": ["eventuali domande aperte per l'architetto, array di stringhe, può essere vuoto"],
+  "system_feedback": "nota interna per l'architetto sul pattern comportamentale del cliente osservato in questa interazione — MAI visibile al cliente, 1 frase"
 }`;
 
   try {
@@ -185,7 +197,7 @@ nessun preambolo, nessun code fence. Schema esatto:
       interpretation: "",
       design_intent: `Ho notato che hai segnato ${area}. Terremo conto di questa indicazione nella prossima iterazione.`,
       open_questions: [],
-      system_feedback: "AI non raggiungibile in questa interazione â€” verificare manualmente.",
+      system_feedback: "AI non raggiungibile in questa interazione — verificare manualmente.",
     };
   }
 }
@@ -379,13 +391,13 @@ function BottomNav({ onNavigate }) {
   return (
     <div className="bottom-nav">
       <button className="bottom-nav__btn" onClick={() => onNavigate("progetto")} aria-label="Home">
-        ðŸ 
+        🏠
       </button>
       <button className="bottom-nav__btn" onClick={() => onNavigate("edita")} aria-label="Edita">
-        âœŽ
+        ✎
       </button>
       <button className="bottom-nav__btn" onClick={() => onNavigate("dna")} aria-label="DNA">
-        ðŸ§¬
+        🧬
       </button>
     </div>
   );
@@ -393,7 +405,7 @@ function BottomNav({ onNavigate }) {
 
 /* ---------------- DRAW LAYER (azione "Edita") ---------------- */
 
-function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef, annotations = [], onAnnotationSelect }) {
+function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const points = useRef([]);
@@ -425,9 +437,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef,
   };
 
   const onPointerDown = (e) => {
-    if (!isDrawing) return;
     e.preventDefault();
-    e.stopPropagation();
     drawing.current = true;
     points.current = [getPos(e)];
     onDrawingChange(true);
@@ -436,8 +446,6 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef,
 
   const onPointerMove = (e) => {
     if (!drawing.current) return;
-    e.preventDefault();
-    e.stopPropagation();
     const pos = getPos(e);
     points.current.push(pos);
     const canvas = canvasRef.current;
@@ -456,8 +464,6 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef,
 
   const onPointerUp = (e) => {
     if (!drawing.current) return;
-    e.preventDefault();
-    e.stopPropagation();
     drawing.current = false;
     const canvas = canvasRef.current;
     const pts = points.current;
@@ -477,49 +483,27 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef,
   };
 
   return (
-    <>
-      <canvas
-        ref={canvasRef}
-        className={"draw-canvas" + (isDrawing ? " is-active is-flashing" : "")}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-      />
-      <div className="annotation-markers">
-        {annotations.map((annotation, index) => (
-          <button
-            key={annotation.id}
-            className="annotation-marker"
-            style={{
-              left: `${annotation.fx * 100}%`,
-              top: `${annotation.fy * 100}%`,
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAnnotationSelect(annotation);
-            }}
-            aria-label={`Riapri annotazione ${index + 1}: ${annotation.area}`}
-          >
-            {index + 1}
-          </button>
-        ))}
-      </div>
-    </>
+    <canvas
+      ref={canvasRef}
+      className={"draw-canvas" + (isDrawing ? " is-flashing" : "")}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    />
   );
 }
 
 /* ---------------- REACTION BAR ---------------- */
 
 function ReactionBar({ decisionId, reaction, onReact }) {
-  const emojis = ["ðŸ˜", "ðŸ¤”", "âŒ"];
+  const emojis = ["😍", "🤔", "❌"];
   return (
     <div className="reaction-bar">
       {emojis.map((e) => (
         <button
           key={e}
           className={"reaction-btn" + (reaction === e ? " is-active" : "")}
-          onClick={() => onReact(decisionId, e)}
+          onClick={(evt) => onReact(decisionId, e, evt)}
         >
           {e}
         </button>
@@ -530,21 +514,19 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
-function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onClose, isMobile }) {
+function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onClose }) {
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
 
-  const style = isMobile
-    ? {}
-    : {
-        left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
-        top: placeAbove ? anchor.y - 12 : anchor.y + 24,
-        transform: placeAbove ? "translateY(-100%)" : "none",
-      };
+  const style = {
+    left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
+    top: placeAbove ? anchor.y - 12 : anchor.y + 24,
+    transform: placeAbove ? "translateY(-100%)" : "none",
+  };
 
   return (
-    <div className={"pi-anchor" + (isMobile ? " pi-anchor--mobile" : "")} style={style}>
-      {!isMobile && <div className={"pi-arrow " + (placeAbove ? "pi-arrow--above" : "pi-arrow--below")} />}
+    <div className="pi-anchor" style={style}>
+      <div className={"pi-arrow " + (placeAbove ? "pi-arrow--above" : "pi-arrow--below")} />
       <div className="pi-card">
         <div className="pi-card__eyebrow">Project Intelligence</div>
 
@@ -560,16 +542,16 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
                 </button>
               ))}
             </div>
-            {quickChoice === "Altroâ€¦" && (
+            {quickChoice === "Altro…" && (
               <textarea
                 className="pi-custom-input"
-                placeholder="Scrivi cosa vorresti cambiareâ€¦"
+                placeholder="Scrivi cosa vorresti cambiare…"
                 value={customText}
                 onChange={(e) => onCustomChange(e.target.value)}
                 autoFocus
               />
             )}
-            {quickChoice === "Altroâ€¦" && customText.trim() && (
+            {quickChoice === "Altro…" && customText.trim() && (
               <button className="pi-btn pi-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={onConfirm}>
                 Invia
               </button>
@@ -579,7 +561,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
 
         {step === "thinking" && (
           <div className="pi-thinking">
-            <div className="pi-thinking__label">Project Intelligence sta elaborandoâ€¦</div>
+            <div className="pi-thinking__label">Project Intelligence sta elaborando…</div>
             <div className="pi-thinking__bar">
               <div className="pi-thinking__bar-fill" />
             </div>
@@ -592,7 +574,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
             {aiResult.open_questions && aiResult.open_questions.length > 0 && (
               <div className="pi-confirm__questions">
                 {aiResult.open_questions.map((q, i) => (
-                  <div key={i}>Â· {q}</div>
+                  <div key={i}>· {q}</div>
                 ))}
               </div>
             )}
@@ -603,10 +585,10 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
             />
             <div className="pi-confirm__actions">
               <button className="pi-btn" onClick={onClose}>
-                âœ Modifica
+                ✏ Modifica
               </button>
               <button className="pi-btn pi-btn--primary" onClick={onConfirm}>
-                âœ“ Conferma
+                ✓ Conferma
               </button>
             </div>
           </>
@@ -614,7 +596,7 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
 
         {step === "saved" && (
           <div className="pi-saved">
-            <span className="pi-saved__check">âœ“</span>
+            <span className="pi-saved__check">✓</span>
             Aggiunto al Project DNA
           </div>
         )}
@@ -643,7 +625,7 @@ function useScrollParallax(ref) {
   return progress;
 }
 
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, annotations, onAnnotationSelect }) {
+function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, onZoom }) {
   const cardRef = useRef(null);
   const frameRef = useRef(null);
   const progress = useScrollParallax(cardRef);
@@ -663,14 +645,19 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
         <img src={option.image} alt={option.label} className="compare-card__image" />
         <DrawLayer
           hotspots={decision.hotspots}
-          isDrawing={editaEnabled}
+          isDrawing={isDrawing}
           onDrawingChange={onDraw.setDrawing}
           onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, frameRef)}
           containerRef={frameRef}
-          annotations={annotations}
-          onAnnotationSelect={(annotation) => onAnnotationSelect(annotation, frameRef)}
         />
-        <span className="edita-hint">Edita â€” disegna per lasciare un segno</span>
+        <button
+          className="zoom-btn"
+          onClick={(e) => { e.stopPropagation(); onZoom(option.image, option.label); }}
+          aria-label="Ingrandisci"
+        >
+          ⤢
+        </button>
+        <span className="edita-hint">Edita — disegna per lasciare un segno</span>
       </div>
       <div className="compare-card__body">
         <div className="compare-card__label">{option.label}</div>
@@ -686,7 +673,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
           className={"compare-card__choose" + (chosen ? " is-chosen" : "")}
           onClick={() => onChoose(decision.id, optionKey, option)}
         >
-          {chosen ? "âœ“ Scelto" : `Scegli ${option.label}`}
+          {chosen ? "✓ Scelto" : `Scegli ${option.label}`}
         </button>
       </div>
     </div>
@@ -695,7 +682,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
 
 /* ---------------- MOBILE COMPARE SLIDER ---------------- */
 
-function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, annotations, onAnnotationSelect }) {
+function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZoom }) {
   const [pos, setPos] = useState(50);
   const wrapRef = useRef(null);
   const dragging = useRef(false);
@@ -707,20 +694,14 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, anno
   };
 
   const onHandleDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
     dragging.current = true;
     e.target.setPointerCapture(e.pointerId);
   };
   const onHandleMove = (e) => {
     if (!dragging.current) return;
-    e.preventDefault();
-    e.stopPropagation();
     setFromClientX(e.clientX);
   };
-  const onHandleUp = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const onHandleUp = () => {
     dragging.current = false;
   };
 
@@ -739,15 +720,22 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, anno
           alt={decision.optionA.label}
           className="mobile-slider__img mobile-slider__img--top"
         />
-        <DrawLayer
-          hotspots={decision.hotspots}
-          isDrawing={editaEnabled}
-          onDrawingChange={onDraw.setDrawing}
-          onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
-          containerRef={wrapRef}
-          annotations={annotations}
-          onAnnotationSelect={(annotation) => onAnnotationSelect(annotation, wrapRef)}
-        />
+        {chosen && (
+          <DrawLayer
+            hotspots={decision.hotspots}
+            isDrawing={isDrawing}
+            onDrawingChange={onDraw.setDrawing}
+            onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
+            containerRef={wrapRef}
+          />
+        )}
+        <button
+          className="zoom-btn"
+          onClick={(e) => { e.stopPropagation(); onZoom(dominant.image, dominant.label); }}
+          aria-label="Ingrandisci"
+        >
+          ⤢
+        </button>
         <div className="mobile-slider__divider" />
         <div
           className="mobile-slider__handle"
@@ -755,7 +743,7 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, anno
           onPointerMove={onHandleMove}
           onPointerUp={onHandleUp}
         >
-          â‡”
+          ⇔
         </div>
       </div>
       <div className="mobile-slider__desc">{dominant.desc}</div>
@@ -773,7 +761,119 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, anno
           Scegli Versione II
         </button>
       </div>
+      <div className="edita-mobile-status">
+        {chosen
+          ? "✎ Edita attivo — disegna col dito per lasciare un segno"
+          : "Scegli una versione per attivare Edita e poter disegnare"}
+      </div>
     </div>
+  );
+}
+
+/* ---------------- ZOOM VIEWER — pinch / rotellina / doppio-tap / trascina ---------------- */
+
+function ZoomViewer({ src, alt, onClose }) {
+  const [scale, setScale] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const pointers = useRef(new Map());
+  const pinchStart = useRef(null); // { dist, scale }
+  const dragStart = useRef(null); // { x, y, posX, posY }
+
+  const clampScale = (s) => Math.max(1, Math.min(4, s));
+
+  const onPointerDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      pinchStart.current = { dist, scale };
+      dragStart.current = null;
+    } else if (pointers.current.size === 1 && scale > 1) {
+      dragStart.current = { x: e.clientX, y: e.clientY, posX: pos.x, posY: pos.y };
+    }
+  };
+
+  const onPointerMove = (e) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.current.size === 2 && pinchStart.current) {
+      const [a, b] = [...pointers.current.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const next = clampScale(pinchStart.current.scale * (dist / pinchStart.current.dist));
+      setScale(next);
+    } else if (pointers.current.size === 1 && dragStart.current) {
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      setPos({ x: dragStart.current.posX + dx, y: dragStart.current.posY + dy });
+    }
+  };
+
+  const endPointer = (e) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinchStart.current = null;
+    if (pointers.current.size === 0) dragStart.current = null;
+  };
+
+  const onWheel = (e) => {
+    e.preventDefault();
+    setScale((s) => clampScale(s - e.deltaY * 0.0015));
+  };
+
+  const onDoubleClick = () => {
+    setScale((s) => (s > 1 ? 1 : 2.5));
+    setPos({ x: 0, y: 0 });
+  };
+
+  return (
+    <div className="zoom-overlay" onClick={onClose}>
+      <button className="zoom-overlay__close" onClick={onClose} aria-label="Chiudi">✕</button>
+      <div className="zoom-overlay__hint">Pizzica o usa la rotellina per ingrandire · doppio tocco per reset</div>
+      <img
+        src={src}
+        alt={alt}
+        className="zoom-overlay__img"
+        style={{ transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})` }}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
+        onWheel={onWheel}
+        onDoubleClick={onDoubleClick}
+        draggable={false}
+      />
+    </div>
+  );
+}
+
+/* ---------------- VISTA D'INSIEME & PALETTE MATERIALI ---------------- */
+
+const BUILDING_OVERVIEW = [
+  { id: "edificio1", image: "/edificio1.png", label: "Vista d'insieme e palette materiali" },
+  { id: "edificio2", image: "/edificio2.png", label: "Sezione assonometrica dell'edificio" },
+];
+
+function BuildingOverviewSection({ onZoom }) {
+  return (
+    <section className="decision-section">
+      <div className="decision-section__eyebrow">Riferimento</div>
+      <h2 className="decision-section__title">Vista d'insieme &amp; Palette Materiali</h2>
+      <p className="decision-section__hint">Tocca un'immagine per ingrandirla e leggere i dettagli materici.</p>
+      <div className="overview-grid">
+        {BUILDING_OVERVIEW.map((item) => (
+          <button
+            key={item.id}
+            className="overview-thumb"
+            onClick={() => onZoom(item.image, item.label)}
+          >
+            <img src={item.image} alt={item.label} className="overview-thumb__img" />
+            <span className="overview-thumb__label">⤢ {item.label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -807,7 +907,7 @@ function DNAViewPanel({ dna, onClose }) {
         <div className="side-panel__header">
           <div className="side-panel__title">Project DNA</div>
           <button className="side-panel__close" onClick={onClose}>
-            Ã—
+            ×
           </button>
         </div>
         {categories.map(([key, label]) => (
@@ -840,7 +940,7 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
         <div className="side-panel__header">
           <div className="side-panel__title">Project Intelligence</div>
           <button className="side-panel__close" onClick={onClose}>
-            Ã—
+            ×
           </button>
         </div>
         <div className="dna-category__label" style={{ marginBottom: 14 }}>
@@ -852,7 +952,7 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
         {dna.intenzioni_validate.map((rec, i) => (
           <div className="intent-record" key={i}>
             <div className="intent-record__area">
-              {rec.area} â€” {rec.intent_label}
+              {rec.area} — {rec.intent_label}
             </div>
             <div>{rec.design_intent}</div>
           </div>
@@ -872,7 +972,6 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [editaEnabled, setEditaEnabled] = useState(false);
   const [navActive, setNavActive] = useState("progetto");
   const [showDNA, setShowDNA] = useState(false);
   const [showIntelligenceSummary, setShowIntelligenceSummary] = useState(false);
@@ -880,6 +979,7 @@ export default function App() {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [popup, setPopup] = useState({ open: false });
+  const [zoom, setZoom] = useState(null); // { src, alt } | null
 
   const decisionsRef = useRef(null);
 
@@ -918,7 +1018,6 @@ export default function App() {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
     } else if (id === "edita") {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-      setEditaEnabled(true);
       setIsDrawing(true);
       setTimeout(() => setIsDrawing(false), 1600);
     } else if (id === "intelligence") {
@@ -939,18 +1038,33 @@ export default function App() {
     });
   };
 
-  const handleReact = (decisionId, emoji) => {
+  const handleReact = (decisionId, emoji, evt) => {
     setReactions((prev) => ({ ...prev, [decisionId]: emoji }));
     setDna((prev) => ({ ...prev, reazioni: { ...prev.reazioni, [decisionId]: emoji } }));
+
+    if (emoji === "🤔" || emoji === "❌") {
+      // Ancora il popup vicino al bottone appena toccato, non al centro della viewport:
+      // così compare dove si trova davvero il cliente, non in cima alla pagina (hero).
+      const rect = evt.currentTarget.getBoundingClientRect();
+      const viewportX = rect.left + rect.width / 2;
+      const viewportY = rect.top;
+      openPopupForArea(decisionId, "la scelta appena espressa", {
+        x: viewportX + window.scrollX,
+        y: viewportY + window.scrollY,
+      }, viewportY);
+    }
   };
 
-  const openPopupForArea = (decisionId, area, anchorPx) => {
-    const placeAbove = anchorPx.y > window.innerHeight - 260;
+  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride) => {
+    // placeAbove va deciso sullo spazio DISPONIBILE NELLA VIEWPORT, non sulla posizione
+    // assoluta nella pagina — altrimenti da scrollati in basso il calcolo è sbagliato.
+    const viewportY = viewportYOverride != null ? viewportYOverride : anchorPagePx.y - window.scrollY;
+    const placeAbove = viewportY > window.innerHeight - 260;
     setPopup({
       open: true,
       decisionId,
       area,
-      anchor: anchorPx,
+      anchor: anchorPagePx,
       placeAbove,
       step: "intent",
       quickChoice: null,
@@ -961,53 +1075,12 @@ export default function App() {
 
   const handleMark = (decisionId, area, localAnchor, wrapRef) => {
     const rect = wrapRef.current.getBoundingClientRect();
-    const anchor = { x: rect.left + localAnchor.x, y: rect.top + localAnchor.y };
-    const annotation = {
-      id: `${decisionId}-${Date.now()}`,
-      decisionId,
-      area,
-      fx: localAnchor.x / rect.width,
-      fy: localAnchor.y / rect.height,
-      anchor,
-      aiResult: null,
-      quickChoice: null,
-      customText: "",
-      ts: new Date().toISOString(),
-    };
-    setDna((prev) => ({ ...prev, annotations: [...(prev.annotations || []), annotation] }));
-    setEditaEnabled(false);
-    setPopup({
-      open: true,
-      decisionId,
-      annotationId: annotation.id,
-      area,
-      anchor,
-      placeAbove: anchor.y > window.innerHeight - 260,
-      step: "intent",
-      quickChoice: null,
-      customText: "",
-      aiResult: null,
-    });
-  };
-
-  const handleAnnotationSelect = (annotation, wrapRef) => {
-    const rect = wrapRef.current.getBoundingClientRect();
+    const viewportY = rect.top + localAnchor.y;
     const anchor = {
-      x: rect.left + annotation.fx * rect.width,
-      y: rect.top + annotation.fy * rect.height,
+      x: rect.left + localAnchor.x + window.scrollX,
+      y: viewportY + window.scrollY,
     };
-    setPopup({
-      open: true,
-      decisionId: annotation.decisionId,
-      annotationId: annotation.id,
-      area: annotation.area,
-      anchor,
-      placeAbove: anchor.y > window.innerHeight - 260,
-      step: annotation.aiResult ? "confirm" : "intent",
-      quickChoice: annotation.quickChoice || null,
-      customText: annotation.customText || "",
-      aiResult: annotation.aiResult || null,
-    });
+    openPopupForArea(decisionId, area, anchor, viewportY);
   };
 
   const runIntelligence = async (quickChoice, customText) => {
@@ -1017,18 +1090,10 @@ export default function App() {
       new Promise((res) => setTimeout(res, 1400)),
     ]);
     setPopup((p) => ({ ...p, step: "confirm", aiResult }));
-    setDna((prev) => ({
-      ...prev,
-      annotations: (prev.annotations || []).map((annotation) =>
-        annotation.id === popup.annotationId
-          ? { ...annotation, quickChoice, customText, aiResult }
-          : annotation
-      ),
-    }));
   };
 
   const handleQuickChoice = (choice) => {
-    if (choice === "Altroâ€¦") {
+    if (choice === "Altro…") {
       setPopup((p) => ({ ...p, quickChoice: choice }));
       return;
     }
@@ -1040,7 +1105,7 @@ export default function App() {
   };
 
   const handleConfirmCustom = () => {
-    runIntelligence("Altroâ€¦", popup.customText);
+    runIntelligence("Altro…", popup.customText);
   };
 
   const handleEditIntent = (val) => {
@@ -1049,7 +1114,6 @@ export default function App() {
 
   const handleConfirmSaved = () => {
     const record = {
-      annotation_id: popup.annotationId,
       area: popup.area,
       intent_label: popup.quickChoice,
       design_intent: popup.aiResult.design_intent,
@@ -1058,11 +1122,6 @@ export default function App() {
     setDna((prev) => ({
       ...prev,
       intenzioni_validate: [...prev.intenzioni_validate, record],
-      annotations: (prev.annotations || []).map((annotation) =>
-        annotation.id === popup.annotationId
-          ? { ...annotation, quickChoice: popup.quickChoice, aiResult: popup.aiResult, validated: true }
-          : annotation
-      ),
       system_feedback: popup.aiResult.system_feedback
         ? [
             ...prev.system_feedback,
@@ -1081,28 +1140,28 @@ export default function App() {
       `Progetto: ${dna.progetto}`,
       `Cliente: ${dna.cliente}`,
       "",
-      "â€” DECISIONI â€”",
+      "— DECISIONI —",
       ...Object.entries(dna.decisioni_raw).map(([k, v]) => `${k}: ${v}`),
       "",
-      "â€” REAZIONI â€”",
+      "— REAZIONI —",
       ...Object.entries(dna.reazioni).map(([k, v]) => `${k}: ${v}`),
       "",
-      "â€” MATERIALI â€”",
-      dna.materiali.join(", ") || "â€”",
+      "— MATERIALI —",
+      dna.materiali.join(", ") || "—",
       "",
-      "â€” INTENZIONI VALIDATE â€”",
+      "— INTENZIONI VALIDATE —",
       ...dna.intenzioni_validate.map(
         (r) => `[${r.area}] ${r.intent_label || ""}: ${r.design_intent}`
       ),
       "",
-      "â€” PROMPT LYCHEE (editato dall'architetto) â€”",
+      "— PROMPT LYCHEE (editato dall'architetto) —",
       lycheePrompt,
       "",
-      "===== NOTE INTERNE â€” solo per architetto, non condivise col cliente =====",
+      "===== NOTE INTERNE — solo per architetto, non condivise col cliente =====",
       ...dna.system_feedback.map((f) => `[${f.area}] ${f.note}`),
     ].join("\n");
 
-    const subject = encodeURIComponent(`IEL â€” Project DNA â€” ${dna.progetto}`);
+    const subject = encodeURIComponent(`IEL — Project DNA — ${dna.progetto}`);
     const body = encodeURIComponent(dnaLines);
     window.location.href = `mailto:${ARCHITECT_EMAIL}?subject=${subject}&body=${body}`;
   };
@@ -1126,12 +1185,12 @@ export default function App() {
         <HeroMonolith />
         <div className="hero__grid" />
         <div className="hero__content">
-          <div className="hero__eyebrow">IEL Â· Design Iteration Engine</div>
+          <div className="hero__eyebrow">IEL · Design Iteration Engine</div>
           <h1 className="hero__title" data-text="Villa 127/C">
             Villa 127/C
           </h1>
           <p className="hero__subtitle">
-            Ogni scelta che fai qui diventa parte del Project DNA â€” e guida il prossimo render.
+            Ogni scelta che fai qui diventa parte del Project DNA — e guida il prossimo render.
           </p>
           <button className="hero__cta" onClick={() => handleNavigate("progetto")}>
             Inizia
@@ -1139,7 +1198,7 @@ export default function App() {
         </div>
       </section>
 
-      <div className="live-notice">â— un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
+      <div className="live-notice">● un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
 
       <div ref={decisionsRef}>
         {DECISIONS.map((decision) => (
@@ -1155,24 +1214,22 @@ export default function App() {
                   option={decision.optionA}
                   optionKey="optionA"
                   chosen={choices[decision.id] === "optionA"}
-                  isDrawing={editaEnabled}
+                  isDrawing={isDrawing}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
-                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
-                  onAnnotationSelect={handleAnnotationSelect}
+                  onZoom={(src, alt) => setZoom({ src, alt })}
                 />
                 <DesktopCompareCard
                   decision={decision}
                   option={decision.optionB}
                   optionKey="optionB"
                   chosen={choices[decision.id] === "optionB"}
-                  isDrawing={editaEnabled}
+                  isDrawing={isDrawing}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
-                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
-                  onAnnotationSelect={handleAnnotationSelect}
+                  onZoom={(src, alt) => setZoom({ src, alt })}
                 />
               </div>
             )}
@@ -1182,11 +1239,10 @@ export default function App() {
                 <MobileCompareCard
                   decision={decision}
                   chosen={choices[decision.id]}
-                  isDrawing={editaEnabled}
+                  isDrawing={isDrawing}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
-                  annotations={(dna.annotations || []).filter((a) => a.decisionId === decision.id)}
-                  onAnnotationSelect={handleAnnotationSelect}
+                  onZoom={(src, alt) => setZoom({ src, alt })}
                 />
               </div>
             )}
@@ -1196,10 +1252,12 @@ export default function App() {
         ))}
       </div>
 
+      <BuildingOverviewSection onZoom={(src, alt) => setZoom({ src, alt })} />
+
       <section className="decision-section">
         <div className="decision-section__eyebrow">Struttura</div>
         <h2 className="decision-section__title">Sezioni e Prospetti</h2>
-        <p className="decision-section__hint">In arrivo â€” i placeholder sono pronti a ricevere i file.</p>
+        <p className="decision-section__hint">In arrivo — i placeholder sono pronti a ricevere i file.</p>
       </section>
       <div className="placeholder-grid">
         {PLACEHOLDERS.map((p) => (
@@ -1217,7 +1275,7 @@ export default function App() {
           onChange={(e) => setLycheePrompt(e.target.value)}
         />
         <div className="send-section__internal-note">
-          L'email include anche le note interne (system feedback) â€” visibili solo a te, mai al cliente.
+          L'email include anche le note interne (system feedback) — visibili solo a te, mai al cliente.
         </div>
         <button className="send-section__cta" onClick={handleSendEmail}>
           Invia email all'architetto
@@ -1230,17 +1288,16 @@ export default function App() {
         popup={popup}
         onQuickChoice={handleQuickChoice}
         onCustomChange={handleCustomChange}
-        onConfirm={popup.quickChoice === "Altroâ€¦" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
+        onConfirm={popup.quickChoice === "Altro…" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
         onEdit={handleEditIntent}
         onClose={handleClosePopup}
-        isMobile={isMobile}
       />
 
       {showDNA && <DNAViewPanel dna={dna} onClose={() => setShowDNA(false)} />}
       {showIntelligenceSummary && (
         <IntelligenceSummaryPanel dna={dna} onClose={() => setShowIntelligenceSummary(false)} />
       )}
+      {zoom && <ZoomViewer src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)} />}
     </div>
   );
 }
-

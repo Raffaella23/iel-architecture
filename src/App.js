@@ -614,7 +614,7 @@ function BottomNav({ onNavigate }) {
   );
 }
 
-function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onEmailAccess, onRegister, onProviderClick, onClose }) {
+function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onEmailAccess, onAdminAccess, onRegister, onProviderClick, onClose }) {
   if (!open) return null;
 
   return (
@@ -680,6 +680,11 @@ function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onE
           <button type="button" className="login-submit-btn" onClick={onEmailAccess}>
             {mode === "login" ? "Accedi con email" : "Accedi con email"}
           </button>
+          {mode === "login" && (
+            <button type="button" className="login-submit-btn login-submit-btn--secondary" onClick={onAdminAccess}>
+              Entra come admin
+            </button>
+          )}
           {mode === "register" && (
             <button type="button" className="login-submit-btn login-submit-btn--secondary" onClick={onRegister}>
               Registrati
@@ -1444,6 +1449,18 @@ export default function App() {
     }
     const email = authForm.email.trim().toLowerCase();
     const password = authForm.password.trim();
+    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+      setAuthSession({
+        provider: "email-admin",
+        role: "architect",
+        email,
+        loginAt: new Date().toISOString(),
+      });
+      setAuthError("");
+      setShowLogin(false);
+      decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
     const match = authUsers.find((user) => user.email.toLowerCase() === email && user.password === password);
     if (!match) {
       setAuthError("Credenziali non valide. Per l'accesso admin usa l'email configurata e la password assegnata.");
@@ -1453,6 +1470,19 @@ export default function App() {
       provider: match.role === "architect" ? "email-admin" : "email-preview",
       role: match.role || "client",
       email,
+      loginAt: new Date().toISOString(),
+    });
+    setAuthError("");
+    setShowLogin(false);
+    decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleAdminAccess = () => {
+    setAuthForm({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+    setAuthSession({
+      provider: "email-admin",
+      role: "architect",
+      email: ADMIN_EMAIL,
       loginAt: new Date().toISOString(),
     });
     setAuthError("");
@@ -1913,6 +1943,7 @@ export default function App() {
         }}
         onChange={handleAuthFieldChange}
         onEmailAccess={handleEmailAccess}
+        onAdminAccess={handleAdminAccess}
         onRegister={handleRegister}
         onProviderClick={handleProviderClick}
         onClose={() => {

@@ -48,6 +48,11 @@ const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
 const ANNOTATIONS_STORAGE_KEY = "iel_villa127c_annotations_v01";
 const AUTH_STORAGE_KEY = "iel_villa127c_auth_v01";
+const AUTH_USERS_STORAGE_KEY = "iel_villa127c_auth_users_v01";
+const ADMIN_EMAIL = "cianiraffaella@gmail.com";
+const ADMIN_PASSWORD = "2505";
+const BASE_RENDER_PROMPT =
+  "Villa 127/C, Noicattaro. Architectural design evolution grounded in local stone, calibrated light, domestic privacy, warm contemporary materiality, coherent indoor-outdoor continuity.";
 
 const QUICK_CHOICES = [
   "Più privacy",
@@ -107,14 +112,14 @@ const DECISIONS = [
 ];
 
 const PLACEHOLDERS = [
-  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤", image: "/Placeholdersez1.png" },
-  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥", image: "/Placeholdersez2.png" },
-  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧", image: "/edificio2.png" },
-  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨", image: "/PlaceholderProspettosud.png" },
-  { id: "prospetto_est", label: "Prospetto Est", icon: "◩", image: "/Placeholderprospettoest.png" },
-  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪", image: "/PlaceholderProspettoOvest.png" },
-  { id: "interrato", label: "Piano interrato", icon: "▨", image: "/PlaceholderPianoInterrato.png" },
-  { id: "giardino", label: "Giardino e pertinenze", icon: "❖", image: "/PlaceholderVistaprospettica.png" },
+  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤", image: "/Placeholdersez1.png", fallbackImage: "/edificio1.png" },
+  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥", image: "/Placeholdersez2.png", fallbackImage: "/edificio2.png" },
+  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧", image: "/edificio2.png", fallbackImage: "/edificio1.png" },
+  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨", image: "/PlaceholderProspettosud.png", fallbackImage: "/edificio1.png" },
+  { id: "prospetto_est", label: "Prospetto Est", icon: "◩", image: "/Placeholderprospettoest.png", fallbackImage: "/edificio2.png" },
+  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪", image: "/PlaceholderProspettoOvest.png", fallbackImage: "/edificio2.png" },
+  { id: "interrato", label: "Piano interrato", icon: "▨", image: "/PlaceholderPianoInterrato.png", fallbackImage: "/piano_terra1.png" },
+  { id: "giardino", label: "Giardino e pertinenze", icon: "❖", image: "/PlaceholderVistaprospettica.png", fallbackImage: "/edificio1.png" },
 ];
 
 function emptyDNA() {
@@ -132,6 +137,19 @@ function emptyDNA() {
     decisioni_raw: {},
     reazioni: {},
     intenzioni_validate: [],
+    dna_updates: [],
+    inspiration_objects: [],
+    render_prompt_current: BASE_RENDER_PROMPT,
+    render_prompt_history: [
+      {
+        version: 1,
+        prompt: BASE_RENDER_PROMPT,
+        reason: "Baseline architettonica iniziale del progetto.",
+        area: "progetto generale",
+        confidence: 0.6,
+        ts: new Date().toISOString(),
+      },
+    ],
     // NUOVO — solo per architetto, mai mostrato al cliente
     system_feedback: [],
   };
@@ -171,6 +189,19 @@ function loadDNA() {
   }
 }
 
+function loadAuthUsers() {
+  const seed = [{ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: "architect" }];
+  try {
+    const raw = localStorage.getItem(AUTH_USERS_STORAGE_KEY);
+    if (!raw) return seed;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return seed;
+    return parsed.some((user) => user.email === ADMIN_EMAIL) ? parsed : [...parsed, seed[0]];
+  } catch {
+    return seed;
+  }
+}
+
 function loadAuthSession() {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -206,6 +237,101 @@ function createAnnotationRecord({ decisionId, optionKey, area, localAnchor, fram
   };
 }
 
+function buildArchitecturalInterpretation({ area, quickChoice, customText }) {
+  const request = (customText || quickChoice || "miglioramento spaziale").trim();
+  const style = request.toLowerCase().includes("privacy")
+    ? "contemporary private retreat"
+    : request.toLowerCase().includes("luce")
+    ? "light-driven mediterranean minimalism"
+    : request.toLowerCase().includes("verde")
+    ? "indoor-outdoor mediterranean living"
+    : "warm contemporary architectural refinement";
+  const materials = request.toLowerCase().includes("caldo")
+    ? ["rovere naturale", "intonaco minerale caldo", "pietra locale spazzolata"]
+    : ["travertino chiaro", "rovere naturale", "microcemento opaco"];
+  const colors = request.toLowerCase().includes("verde")
+    ? ["sabbia", "salvia", "bronzo ossidato"]
+    : ["avorio caldo", "pietra chiara", "bronzo brunito"];
+  const lighting = request.toLowerCase().includes("luce")
+    ? "Ampliare l'apporto zenitale e laterale con controllo dell'abbagliamento, integrazione di luce indiretta serale e gerarchia luminosa per profondità spaziale."
+    : "Consolidare una luce calda stratificata: tagli indiretti, accent lighting su materiali e sorgenti schermate per comfort visivo serale.";
+  const atmosphere = request.toLowerCase().includes("privacy")
+    ? "Atmosfera raccolta, protetta e più introspettiva."
+    : "Atmosfera calma, architettonica e materica, con leggibilità chiara dei volumi.";
+  const functional = request.toLowerCase().includes("arredi")
+    ? "Riorganizzare i pieni e i vuoti per rendere gli arredi parte della sequenza architettonica, migliorando percorrenze e zone di sosta."
+    : "Ottimizzare uso, transizioni e leggibilità dell'area segnata mantenendo coerenza con il progetto generale.";
+  const risks = request.toLowerCase().includes("luce")
+    ? ["Possibile eccesso di abbagliamento senza schermature", "necessità di coordinare nuove aperture con il linguaggio di facciata"]
+    : ["Rischio di sovraccarico materico se non calibrato", "necessità di verificare costo e manutenzione nel dettaglio esecutivo"];
+  const benefits = [
+    "Migliore coerenza tra uso quotidiano e intenzione architettonica",
+    "Incremento della qualità percettiva e della leggibilità dello spazio",
+  ];
+  const contextual = [
+    "Verificare allineamento con la palette già presente nel Project DNA",
+    `Coordinare l'intervento con l'area ${area} senza interrompere la continuità compositiva della villa`,
+  ];
+  const proposal = {
+    interpretation: `L'annotazione su ${area} suggerisce una richiesta di ${request.toLowerCase()} da tradurre in una decisione architettonica verificabile.`,
+    design_intent: `L'area ${area} viene reinterpretata come leva progettuale per ${request.toLowerCase()}, mantenendo coerenza materica e spaziale con Villa 127/C.`,
+    materials,
+    lighting_strategy: lighting,
+    atmosphere,
+    functional_improvements: functional,
+    risks,
+    benefits,
+    contextual_recommendations: contextual,
+    confidence: request.toLowerCase().includes("altro") ? 0.67 : 0.82,
+  };
+  return {
+    interpretation: proposal.interpretation,
+    design_intent: proposal.design_intent,
+    open_questions: ["Verificare con il cliente il livello di priorità rispetto alle altre aree annotate."],
+    system_feedback: `Il cliente tende a usare l'annotazione su ${area} per esprimere un obiettivo di ${request.toLowerCase()} più che una preferenza formale isolata.`,
+    proposal,
+    inspiration_object: {
+      style,
+      materials,
+      colors,
+      lighting: lighting,
+      keywords: [area, request, "villa contemporanea", "Puglia", "architettura domestica"],
+      image_prompt: `Architectural concept render for Villa 127/C in Noicattaro, focus on ${area}, ${style}, materials: ${materials.join(", ")}, colors: ${colors.join(", ")}, lighting: ${lighting}, atmosphere: ${atmosphere}, high-detail architectural visualization, no furniture catalog style, coherent Mediterranean contemporary residence.`,
+    },
+  };
+}
+
+function appendUniqueValues(list, values) {
+  return [...new Set([...(list || []), ...(values || []).filter(Boolean)])];
+}
+
+function buildDNAUpdate({ annotationId, area, aiResult, quickChoice }) {
+  const proposal = aiResult.proposal || {};
+  return {
+    annotationId: annotationId || null,
+    reason: aiResult.interpretation || `Annotazione confermata su ${area}`,
+    affected_area: area,
+    confidence: proposal.confidence || 0.72,
+    timestamp: new Date().toISOString(),
+    quick_choice: quickChoice || null,
+    materials: proposal.materials || [],
+    lighting: proposal.lighting_strategy || "",
+    atmosphere: proposal.atmosphere || "",
+  };
+}
+
+function extendRenderPrompt(currentPrompt, area, aiResult) {
+  const proposal = aiResult.proposal || {};
+  const additions = [
+    `Area ${area}`,
+    proposal.atmosphere,
+    ...(proposal.materials || []),
+    proposal.lighting_strategy,
+  ].filter(Boolean);
+  const delta = additions.join(" · ");
+  return delta && !currentPrompt.includes(delta) ? `${currentPrompt} | ${delta}` : currentPrompt;
+}
+
 /* ---------------- AI LAYER — output JSON rigoroso ---------------- */
 
 async function askProjectIntelligence({ area, quickChoice, customText }) {
@@ -217,15 +343,34 @@ async function askProjectIntelligence({ area, quickChoice, customText }) {
     clients: "Gabriele & Ludovica",
   };
 
-  const systemPrompt = `Sei il layer di ragionamento del sistema IEL per Villa 127/C.
+  const systemPrompt = `Sei l'Architectural Design Interpreter del sistema IEL per Villa 127/C.
 Ricevi un input strutturato su un'area della pianta e un'intenzione del cliente.
 Devi rispondere SOLO con un oggetto JSON valido, nessun testo fuori dal JSON,
 nessun preambolo, nessun code fence. Schema esatto:
 {
-  "interpretation": "breve interpretazione tecnica dell'intento, 1 frase",
-  "design_intent": "testo in italiano, tono caldo e professionale, rivolto al cliente, che inizia con 'Ho notato che hai segnato ' + l'area, poi spiega cosa cambierà nel progetto in base all'intento scelto. Max 3 frasi.",
-  "open_questions": ["eventuali domande aperte per l'architetto, array di stringhe, può essere vuoto"],
-  "system_feedback": "nota interna per l'architetto sul pattern comportamentale del cliente osservato in questa interazione — MAI visibile al cliente, 1 frase"
+  "interpretation": "sintesi tecnica dell'intenzione, 1 frase",
+  "design_intent": "testo conciso, tecnico e architettura-oriented, rivolto al cliente, max 3 frasi",
+  "open_questions": ["eventuali domande aperte per l'architetto"],
+  "system_feedback": "nota interna per l'architetto, 1 frase",
+  "proposal": {
+    "design_intent": "obiettivo architettonico strutturato",
+    "materials": ["materiali coerenti"],
+    "lighting_strategy": "strategia luminosa",
+    "atmosphere": "atmosfera risultante",
+    "functional_improvements": "migliorie funzionali",
+    "risks": ["rischi"],
+    "benefits": ["benefici"],
+    "contextual_recommendations": ["raccomandazioni contestuali"],
+    "confidence": 0.0
+  },
+  "inspiration_object": {
+    "style": "linguaggio architettonico",
+    "materials": ["materiali"],
+    "colors": ["colori"],
+    "lighting": "luce",
+    "keywords": ["keyword"],
+    "image_prompt": "prompt pronto per future image generation"
+  }
 }`;
 
   try {
@@ -244,21 +389,17 @@ nessun preambolo, nessun code fence. Schema esatto:
     const raw = (textBlock && textBlock.text) || "{}";
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
+    const fallback = buildArchitecturalInterpretation({ area, quickChoice, customText });
     return {
-      interpretation: parsed.interpretation || "",
-      design_intent:
-        parsed.design_intent ||
-        `Ho notato che hai segnato ${area}. Terremo conto di questa indicazione nella prossima iterazione.`,
-      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : [],
-      system_feedback: parsed.system_feedback || "",
+      interpretation: parsed.interpretation || fallback.interpretation,
+      design_intent: parsed.design_intent || fallback.design_intent,
+      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : fallback.open_questions,
+      system_feedback: parsed.system_feedback || fallback.system_feedback,
+      proposal: parsed.proposal || fallback.proposal,
+      inspiration_object: parsed.inspiration_object || fallback.inspiration_object,
     };
   } catch (err) {
-    return {
-      interpretation: "",
-      design_intent: `Ho notato che hai segnato ${area}. Terremo conto di questa indicazione nella prossima iterazione.`,
-      open_questions: [],
-      system_feedback: "AI non raggiungibile in questa interazione — verificare manualmente.",
-    };
+    return buildArchitecturalInterpretation({ area, quickChoice, customText });
   }
 }
 
@@ -473,17 +614,34 @@ function BottomNav({ onNavigate }) {
   );
 }
 
-function LoginOverlay({ open, authError, form, onChange, onEmailAccess, onProviderClick, onClose }) {
+function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onEmailAccess, onRegister, onProviderClick, onClose }) {
   if (!open) return null;
 
   return (
     <div className="login-overlay" onClick={onClose}>
       <div className="login-panel" onClick={(e) => e.stopPropagation()}>
         <div className="login-panel__eyebrow">Ingresso protetto</div>
-        <h2 className="login-panel__title">Accedi al progetto</h2>
+        <h2 className="login-panel__title">{mode === "login" ? "Accedi al progetto" : "Registrati al progetto"}</h2>
         <p className="login-panel__body">
           La Hero resta pubblica. Le interazioni che modificano Project DNA, annotazioni e decisioni richiedono accesso.
         </p>
+
+        <div className="login-panel__switch">
+          <button
+            type="button"
+            className={"login-panel__switch-btn" + (mode === "login" ? " is-active" : "")}
+            onClick={() => onModeChange("login")}
+          >
+            Accedi
+          </button>
+          <button
+            type="button"
+            className={"login-panel__switch-btn" + (mode === "register" ? " is-active" : "")}
+            onClick={() => onModeChange("register")}
+          >
+            Registrati
+          </button>
+        </div>
 
         <div className="login-panel__providers">
           {[
@@ -520,12 +678,17 @@ function LoginOverlay({ open, authError, form, onChange, onEmailAccess, onProvid
             onChange={(e) => onChange("password", e.target.value)}
           />
           <button type="button" className="login-submit-btn" onClick={onEmailAccess}>
-            Accedi con email
+            {mode === "login" ? "Accedi con email" : "Accedi con email"}
           </button>
+          {mode === "register" && (
+            <button type="button" className="login-submit-btn login-submit-btn--secondary" onClick={onRegister}>
+              Registrati
+            </button>
+          )}
         </div>
 
         <div className="login-panel__note">
-          Stato attuale: accesso locale prototipo via email. Google / Apple / Microsoft verranno attivati con Firebase su Vercel.
+          Stato attuale: accesso locale prototipo via email. Admin abilitato: {ADMIN_EMAIL}. Google / Apple / Microsoft verranno attivati con Firebase su Vercel.
         </div>
 
         {authError && <div className="login-panel__error">{authError}</div>}
@@ -707,6 +870,24 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
         {step === "confirm" && aiResult && (
           <>
             <div className="pi-confirm__intent">{aiResult.design_intent}</div>
+            {aiResult.proposal && (
+              <div className="pi-proposal-grid">
+                <div><b>Materiali</b><span>{(aiResult.proposal.materials || []).join(", ") || "—"}</span></div>
+                <div><b>Luce</b><span>{aiResult.proposal.lighting_strategy || "—"}</span></div>
+                <div><b>Atmosfera</b><span>{aiResult.proposal.atmosphere || "—"}</span></div>
+                <div><b>Funzione</b><span>{aiResult.proposal.functional_improvements || "—"}</span></div>
+                <div><b>Benefici</b><span>{(aiResult.proposal.benefits || []).join(" · ") || "—"}</span></div>
+                <div><b>Rischi</b><span>{(aiResult.proposal.risks || []).join(" · ") || "—"}</span></div>
+              </div>
+            )}
+            {aiResult.inspiration_object && (
+              <div className="pi-inspiration-box">
+                <div className="pi-inspiration-box__title">Inspiration Object</div>
+                <div><b>Style</b> {aiResult.inspiration_object.style}</div>
+                <div><b>Keywords</b> {(aiResult.inspiration_object.keywords || []).join(", ")}</div>
+                <div><b>Prompt</b> {aiResult.inspiration_object.image_prompt}</div>
+              </div>
+            )}
             {aiResult.open_questions && aiResult.open_questions.length > 0 && (
               <div className="pi-confirm__questions">
                 {aiResult.open_questions.map((q, i) => (
@@ -1063,14 +1244,24 @@ function BuildingOverviewSection({ onZoom }) {
 /* ---------------- PLACEHOLDER CARD ---------------- */
 
 function PlaceholderCard({ item, onZoom }) {
+  const [imgSrc, setImgSrc] = useState(item.image);
+
   return (
     <button
       className="placeholder-card"
       type="button"
-      onClick={() => item.image && onZoom(item.image, item.label)}
+      onClick={() => imgSrc && onZoom(imgSrc, item.label)}
     >
-      {item.image ? (
-        <img src={item.image} alt={item.label} className="placeholder-card__img" />
+      {imgSrc ? (
+        <img
+          src={imgSrc}
+          alt={item.label}
+          className="placeholder-card__img"
+          onError={() => {
+            if (item.fallbackImage && imgSrc !== item.fallbackImage) setImgSrc(item.fallbackImage);
+            else setImgSrc("");
+          }}
+        />
       ) : (
         <div className="placeholder-card__icon">{item.icon}</div>
       )}
@@ -1162,8 +1353,10 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
 export default function App() {
   const [authSession, setAuthSession] = useState(loadAuthSession);
   const [showLogin, setShowLogin] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
   const [authError, setAuthError] = useState("");
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
+  const [authUsers, setAuthUsers] = useState(loadAuthUsers);
   const [dna, setDna] = useState(loadDNA);
   const [annotations, setAnnotations] = useState(loadAnnotations);
   const [choices, setChoices] = useState({});
@@ -1174,7 +1367,7 @@ export default function App() {
   const [navActive, setNavActive] = useState("progetto");
   const [showDNA, setShowDNA] = useState(false);
   const [showIntelligenceSummary, setShowIntelligenceSummary] = useState(false);
-  const [lycheePrompt, setLycheePrompt] = useState("");
+  const [lycheePrompt, setLycheePrompt] = useState(() => loadDNA().render_prompt_current || BASE_RENDER_PROMPT);
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [popup, setPopup] = useState({ open: false });
@@ -1190,6 +1383,10 @@ export default function App() {
     if (authSession) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authSession));
     else localStorage.removeItem(AUTH_STORAGE_KEY);
   }, [authSession]);
+
+  useEffect(() => {
+    localStorage.setItem(AUTH_USERS_STORAGE_KEY, JSON.stringify(authUsers));
+  }, [authUsers]);
 
   useEffect(() => {
     localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
@@ -1210,15 +1407,6 @@ export default function App() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  useEffect(() => {
-    // bozza iniziale del prompt Lychee, editabile dall'architetto prima dell'invio
-    const stylePart = dna.stile.length ? dna.stile.join(", ") : "in definizione";
-    const materialPart = dna.materiali.length ? dna.materiali.join(", ") : "in definizione";
-    setLycheePrompt(
-      `Villa 127/C, Noicattaro. Stile: ${stylePart}. Materiali: ${materialPart}. Aggiornare il render secondo le decisioni cliente registrate nel Project DNA.`
-    );
-  }, [dna.stile, dna.materiali]);
 
   const handleNavigate = (id) => {
     if (!authSession && id !== "progetto") {
@@ -1254,14 +1442,37 @@ export default function App() {
       setAuthError("Inserisci email e password per accedere al prototipo protetto.");
       return;
     }
+    const email = authForm.email.trim().toLowerCase();
+    const password = authForm.password.trim();
+    const match = authUsers.find((user) => user.email.toLowerCase() === email && user.password === password);
+    if (!match) {
+      setAuthError("Credenziali non valide. Per l'accesso admin usa l'email configurata e la password assegnata.");
+      return;
+    }
     setAuthSession({
-      provider: "email-preview",
-      email: authForm.email.trim(),
+      provider: match.role === "architect" ? "email-admin" : "email-preview",
+      role: match.role || "client",
+      email,
       loginAt: new Date().toISOString(),
     });
     setAuthError("");
     setShowLogin(false);
     decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleRegister = () => {
+    if (!authForm.email.trim() || !authForm.password.trim()) {
+      setAuthError("Inserisci email e password per registrare un accesso locale prototipo.");
+      return;
+    }
+    const email = authForm.email.trim().toLowerCase();
+    if (authUsers.some((user) => user.email.toLowerCase() === email)) {
+      setAuthError("Questa email è già registrata. Usa Accedi.");
+      return;
+    }
+    setAuthUsers((prev) => [...prev, { email, password: authForm.password.trim(), role: "client" }]);
+    setAuthError("Registrazione locale completata. Ora puoi accedere.");
+    setAuthMode("login");
   };
 
   const handleProviderClick = (provider) => {
@@ -1390,21 +1601,62 @@ export default function App() {
   };
 
   const handleConfirmSaved = () => {
+    const dnaUpdate = buildDNAUpdate({ annotationId: popup.annotationId, area: popup.area, aiResult: popup.aiResult, quickChoice: popup.quickChoice });
     const record = {
       annotationId: popup.annotationId || null,
       area: popup.area,
       intent_label: popup.quickChoice,
       design_intent: popup.aiResult.design_intent,
+      proposal: popup.aiResult.proposal || null,
+      inspiration_object: popup.aiResult.inspiration_object || null,
+      reason: dnaUpdate.reason,
+      confidence: dnaUpdate.confidence,
       ts: new Date().toISOString(),
     };
     setDna((prev) => ({
       ...prev,
+      materiali: appendUniqueValues(prev.materiali, dnaUpdate.materials),
+      luce: appendUniqueValues(prev.luce, dnaUpdate.lighting ? [dnaUpdate.lighting] : []),
+      stile: appendUniqueValues(prev.stile, popup.aiResult.inspiration_object ? [popup.aiResult.inspiration_object.style] : []),
+      funzioni_richieste: appendUniqueValues(prev.funzioni_richieste, popup.aiResult.proposal ? [popup.aiResult.proposal.functional_improvements] : []),
+      dna_updates: [...prev.dna_updates, dnaUpdate],
+      inspiration_objects: popup.annotationId
+        ? [
+            ...prev.inspiration_objects.filter((item) => item.annotationId !== popup.annotationId),
+            {
+              annotationId: popup.annotationId,
+              area: popup.area,
+              ...popup.aiResult.inspiration_object,
+              timestamp: dnaUpdate.timestamp,
+            },
+          ]
+        : [
+            ...prev.inspiration_objects,
+            {
+              annotationId: popup.annotationId,
+              area: popup.area,
+              ...popup.aiResult.inspiration_object,
+              timestamp: dnaUpdate.timestamp,
+            },
+          ],
       intenzioni_validate: popup.annotationId
         ? [
             ...prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
             record,
           ]
         : [...prev.intenzioni_validate, record],
+      render_prompt_current: extendRenderPrompt(prev.render_prompt_current || BASE_RENDER_PROMPT, popup.area, popup.aiResult),
+      render_prompt_history: [
+        ...prev.render_prompt_history,
+        {
+          version: (prev.render_prompt_history[prev.render_prompt_history.length - 1]?.version || 1) + 1,
+          prompt: extendRenderPrompt(prev.render_prompt_current || BASE_RENDER_PROMPT, popup.area, popup.aiResult),
+          reason: dnaUpdate.reason,
+          area: popup.area,
+          confidence: dnaUpdate.confidence,
+          ts: dnaUpdate.timestamp,
+        },
+      ],
       system_feedback: popup.aiResult.system_feedback
         ? [
             ...prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
@@ -1417,6 +1669,7 @@ export default function App() {
           ]
         : prev.system_feedback,
     }));
+    setLycheePrompt((prev) => extendRenderPrompt(prev || BASE_RENDER_PROMPT, popup.area, popup.aiResult));
     if (popup.annotationId) {
       setAnnotations((prev) =>
         prev.map((ann) =>
@@ -1426,7 +1679,7 @@ export default function App() {
                 quickChoice: popup.quickChoice,
                 customText: popup.customText,
                 aiResult: popup.aiResult,
-                suggestion: popup.aiResult.interpretation || popup.quickChoice || "Suggerimento AI",
+                suggestion: popup.aiResult.proposal?.design_intent || popup.aiResult.interpretation || popup.quickChoice || "Suggerimento AI",
                 status: "saved",
               }
             : ann
@@ -1445,6 +1698,8 @@ export default function App() {
     setDna((prev) => ({
       ...prev,
       intenzioni_validate: prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
+      dna_updates: prev.dna_updates.filter((item) => item.annotationId !== popup.annotationId),
+      inspiration_objects: prev.inspiration_objects.filter((item) => item.annotationId !== popup.annotationId),
       system_feedback: prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
     }));
     setPopup({ open: false });
@@ -1493,6 +1748,7 @@ export default function App() {
         onNavigate={handleNavigate}
         authSession={authSession}
         onOpenLogin={() => {
+          setAuthMode("login");
           setShowLogin(true);
           setAuthError("");
         }}
@@ -1522,6 +1778,7 @@ export default function App() {
             onClick={() => {
               if (authSession) handleNavigate("progetto");
               else {
+                setAuthMode("login");
                 setShowLogin(true);
                 setAuthError("");
               }
@@ -1649,8 +1906,14 @@ export default function App() {
         open={showLogin}
         authError={authError}
         form={authForm}
+        mode={authMode}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setAuthError("");
+        }}
         onChange={handleAuthFieldChange}
         onEmailAccess={handleEmailAccess}
+        onRegister={handleRegister}
         onProviderClick={handleProviderClick}
         onClose={() => {
           setShowLogin(false);

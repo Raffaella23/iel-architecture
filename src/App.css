@@ -286,6 +286,30 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   line-height: 1.6;
 }
 
+.login-panel__switch {
+  display: inline-flex;
+  gap: 8px;
+  margin: 18px 0 4px;
+}
+
+.login-panel__switch-btn {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-panel__switch-btn.is-active {
+  background: var(--bronze);
+  color: var(--ink);
+  border-color: var(--bronze);
+}
+
 .login-panel__providers {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -312,6 +336,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .login-panel__close:hover {
   background: rgba(201, 161, 90, 0.12);
   border-color: var(--bronze);
+}
+
+.login-submit-btn--secondary {
+  background: rgba(201, 161, 90, 0.08);
 }
 
 .login-panel__divider {
@@ -1029,6 +1057,41 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   color: var(--paper-dim);
   margin-bottom: 12px;
   line-height: 1.5;
+}
+
+.pi-proposal-grid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pi-proposal-grid > div,
+.pi-inspiration-box {
+  border: 1px solid var(--line);
+  background: rgba(13, 12, 10, 0.42);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pi-proposal-grid b,
+.pi-inspiration-box b,
+.pi-inspiration-box__title {
+  display: block;
+  color: var(--bronze-glow);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.pi-proposal-grid span {
+  color: var(--paper-dim);
+}
+
+.pi-inspiration-box {
+  margin-bottom: 12px;
 }
 
 .pi-confirm__edit {

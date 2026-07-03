@@ -46,6 +46,7 @@ import "./App.css";
 
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
+const ANNOTATIONS_STORAGE_KEY = "iel_villa127c_annotations_v01";
 
 const QUICK_CHOICES = [
   "Più privacy",
@@ -135,6 +136,29 @@ function emptyDNA() {
   };
 }
 
+function AnnotationMarks({ annotations, onOpen }) {
+  return (
+    <>
+      {annotations.map((ann) => (
+        <button
+          key={ann.id}
+          type="button"
+          className="annotation-mark"
+          style={{ left: `${ann.xRatio * 100}%`, top: `${ann.yRatio * 100}%` }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(ann);
+          }}
+          title={ann.area}
+        >
+          <span className="annotation-mark__dot" />
+          {ann.suggestion && <span className="annotation-mark__hint">{ann.suggestion}</span>}
+        </button>
+      ))}
+    </>
+  );
+}
+
 function loadDNA() {
   try {
     const raw = localStorage.getItem(DNA_STORAGE_KEY);
@@ -144,6 +168,32 @@ function loadDNA() {
   } catch {
     return emptyDNA();
   }
+}
+
+function loadAnnotations() {
+  try {
+    const raw = localStorage.getItem(ANNOTATIONS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createAnnotationRecord({ decisionId, optionKey, area, localAnchor, frameRect }) {
+  return {
+    id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    decisionId,
+    optionKey,
+    area,
+    xRatio: frameRect.width ? localAnchor.x / frameRect.width : 0.5,
+    yRatio: frameRect.height ? localAnchor.y / frameRect.height : 0.5,
+    createdAt: new Date().toISOString(),
+    status: "active",
+    quickChoice: null,
+    customText: "",
+    aiResult: null,
+    suggestion: "",
+  };
 }
 
 /* ---------------- AI LAYER — output JSON rigoroso ---------------- */
@@ -515,7 +565,7 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
-function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onClose }) {
+function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
 
@@ -585,6 +635,11 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
               onChange={(e) => onEdit(e.target.value)}
             />
             <div className="pi-confirm__actions">
+              {popup.annotationId && (
+                <button className="pi-btn pi-btn--danger" onClick={onRemove}>
+                  Rimuovi segno
+                </button>
+              )}
               <button className="pi-btn" onClick={onClose}>
                 ✏ Modifica
               </button>
@@ -626,7 +681,7 @@ function useScrollParallax(ref) {
   return progress;
 }
 
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onChoose, dnaMateriali, onZoom }) {
+function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onOpenAnnotation, annotations, onChoose, dnaMateriali, onZoom }) {
   const cardRef = useRef(null);
   const frameRef = useRef(null);
   const progress = useScrollParallax(cardRef);
@@ -644,12 +699,16 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, ed
     >
       <div className="draw-layer-wrap compare-card__frame" ref={frameRef}>
         <img src={option.image} alt={option.label} className="compare-card__image" />
+        <AnnotationMarks
+          annotations={annotations}
+          onOpen={(annotation) => onOpenAnnotation(annotation, frameRef)}
+        />
         <DrawLayer
           hotspots={decision.hotspots}
           isDrawing={isDrawing}
           enabled={editEnabled}
           onDrawingChange={onDraw.setDrawing}
-          onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, frameRef)}
+          onMark={(area, anchor) => onDraw.onMark(decision.id, optionKey, area, anchor, frameRef)}
           containerRef={frameRef}
         />
         <button
@@ -694,7 +753,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, ed
 
 /* ---------------- MOBILE COMPARE SLIDER ---------------- */
 
-function MobileCompareCard({ decision, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onChoose, onZoom }) {
+function MobileCompareCard({ decision, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onOpenAnnotation, annotations, onChoose, onZoom }) {
   const [pos, setPos] = useState(50);
   const wrapRef = useRef(null);
   const dragging = useRef(false);
@@ -740,13 +799,17 @@ function MobileCompareCard({ decision, chosen, isDrawing, editEnabled, onToggleE
           alt={decision.optionA.label}
           className="mobile-slider__img mobile-slider__img--top"
         />
+        <AnnotationMarks
+          annotations={annotations}
+          onOpen={(annotation) => onOpenAnnotation(annotation, wrapRef)}
+        />
         {chosen && (
           <DrawLayer
             hotspots={decision.hotspots}
             isDrawing={isDrawing}
             enabled={editEnabled}
             onDrawingChange={onDraw.setDrawing}
-            onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
+            onMark={(area, anchor) => onDraw.onMark(decision.id, chosen, area, anchor, wrapRef)}
             containerRef={wrapRef}
           />
         )}
@@ -1003,6 +1066,7 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
 
 export default function App() {
   const [dna, setDna] = useState(loadDNA);
+  const [annotations, setAnnotations] = useState(loadAnnotations);
   const [choices, setChoices] = useState({});
   const [reactions, setReactions] = useState({});
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
@@ -1022,6 +1086,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(DNA_STORAGE_KEY, JSON.stringify(dna));
   }, [dna]);
+
+  useEffect(() => {
+    localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
+  }, [annotations]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -1094,7 +1162,7 @@ export default function App() {
     }
   };
 
-  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride) => {
+  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride, annotation) => {
     // placeAbove va deciso sullo spazio DISPONIBILE NELLA VIEWPORT, non sulla posizione
     // assoluta nella pagina — altrimenti da scrollati in basso il calcolo è sbagliato.
     const viewportY = viewportYOverride != null ? viewportYOverride : anchorPagePx.y - window.scrollY;
@@ -1102,24 +1170,45 @@ export default function App() {
     setPopup({
       open: true,
       decisionId,
+      annotationId: annotation ? annotation.id : null,
       area,
       anchor: anchorPagePx,
       placeAbove,
-      step: "intent",
-      quickChoice: null,
-      customText: "",
-      aiResult: null,
+      step: annotation && annotation.aiResult ? "confirm" : "intent",
+      quickChoice: annotation ? annotation.quickChoice : null,
+      customText: annotation ? annotation.customText || "" : "",
+      aiResult: annotation ? annotation.aiResult : null,
     });
   };
 
-  const handleMark = (decisionId, area, localAnchor, wrapRef) => {
+  const handleMark = (decisionId, optionKey, area, localAnchor, wrapRef) => {
     const rect = wrapRef.current.getBoundingClientRect();
     const viewportY = rect.top + localAnchor.y;
     const anchor = {
       x: rect.left + localAnchor.x + window.scrollX,
       y: viewportY + window.scrollY,
     };
-    openPopupForArea(decisionId, area, anchor, viewportY);
+    const annotation = createAnnotationRecord({
+      decisionId,
+      optionKey,
+      area,
+      localAnchor,
+      frameRect: { width: rect.width, height: rect.height },
+    });
+    setAnnotations((prev) => [...prev, annotation]);
+    openPopupForArea(decisionId, area, anchor, viewportY, annotation);
+  };
+
+  const handleOpenAnnotation = (annotation, wrapRef) => {
+    const rect = wrapRef.current.getBoundingClientRect();
+    const localX = rect.width * annotation.xRatio;
+    const localY = rect.height * annotation.yRatio;
+    const viewportY = rect.top + localY;
+    const anchor = {
+      x: rect.left + localX + window.scrollX,
+      y: viewportY + window.scrollY,
+    };
+    openPopupForArea(annotation.decisionId, annotation.area, anchor, viewportY, annotation);
   };
 
   const runIntelligence = async (quickChoice, customText) => {
@@ -1153,6 +1242,7 @@ export default function App() {
 
   const handleConfirmSaved = () => {
     const record = {
+      annotationId: popup.annotationId || null,
       area: popup.area,
       intent_label: popup.quickChoice,
       design_intent: popup.aiResult.design_intent,
@@ -1160,19 +1250,56 @@ export default function App() {
     };
     setDna((prev) => ({
       ...prev,
-      intenzioni_validate: [...prev.intenzioni_validate, record],
+      intenzioni_validate: popup.annotationId
+        ? [
+            ...prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
+            record,
+          ]
+        : [...prev.intenzioni_validate, record],
       system_feedback: popup.aiResult.system_feedback
         ? [
-            ...prev.system_feedback,
-            { area: popup.area, note: popup.aiResult.system_feedback, ts: new Date().toISOString() },
+            ...prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
+            {
+              annotationId: popup.annotationId || null,
+              area: popup.area,
+              note: popup.aiResult.system_feedback,
+              ts: new Date().toISOString(),
+            },
           ]
         : prev.system_feedback,
     }));
+    if (popup.annotationId) {
+      setAnnotations((prev) =>
+        prev.map((ann) =>
+          ann.id === popup.annotationId
+            ? {
+                ...ann,
+                quickChoice: popup.quickChoice,
+                customText: popup.customText,
+                aiResult: popup.aiResult,
+                suggestion: popup.aiResult.interpretation || popup.quickChoice || "Suggerimento AI",
+                status: "saved",
+              }
+            : ann
+        )
+      );
+    }
     setPopup((p) => ({ ...p, step: "saved" }));
     setTimeout(() => setPopup({ open: false }), 2200);
   };
 
   const handleClosePopup = () => setPopup({ open: false });
+
+  const handleRemoveAnnotation = () => {
+    if (!popup.annotationId) return;
+    setAnnotations((prev) => prev.filter((ann) => ann.id !== popup.annotationId));
+    setDna((prev) => ({
+      ...prev,
+      intenzioni_validate: prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
+      system_feedback: prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
+    }));
+    setPopup({ open: false });
+  };
 
   const handleSendEmail = () => {
     const dnaLines = [
@@ -1257,6 +1384,8 @@ export default function App() {
                   editEnabled={activeEditDecision === decision.id}
                   onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                  onOpenAnnotation={handleOpenAnnotation}
+                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionA")}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
                   onZoom={(src, alt) => setZoom({ src, alt })}
@@ -1270,6 +1399,8 @@ export default function App() {
                   editEnabled={activeEditDecision === decision.id}
                   onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                  onOpenAnnotation={handleOpenAnnotation}
+                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionB")}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
                   onZoom={(src, alt) => setZoom({ src, alt })}
@@ -1286,6 +1417,8 @@ export default function App() {
                   editEnabled={activeEditDecision === decision.id}
                   onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                  onOpenAnnotation={handleOpenAnnotation}
+                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === choices[decision.id])}
                   onChoose={handleChoose}
                   onZoom={(src, alt) => setZoom({ src, alt })}
                 />
@@ -1335,6 +1468,7 @@ export default function App() {
         onCustomChange={handleCustomChange}
         onConfirm={popup.quickChoice === "Altro…" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
         onEdit={handleEditIntent}
+        onRemove={handleRemoveAnnotation}
         onClose={handleClosePopup}
       />
 

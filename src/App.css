@@ -579,6 +579,47 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   text-align: center;
 }
 
+.annotation-mark {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotation-mark__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bronze-glow);
+  box-shadow: 0 0 0 4px rgba(226, 184, 118, 0.16), 0 0 12px rgba(226, 184, 118, 0.45);
+}
+
+.annotation-mark__hint {
+  max-width: 170px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(13,12,10,0.82);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  .annotation-mark__hint {
+    max-width: 120px;
+  }
+}
+
 /* ---------------- ZOOM OVERLAY — lightbox pinch/wheel/drag ---------------- */
 
 .zoom-overlay {

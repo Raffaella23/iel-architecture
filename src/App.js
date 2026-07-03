@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { useAuth } from './auth/AuthContext';
+import { useProject } from './context/ProjectContext';
+import LoginScreen from './components/LoginScreen';
 import './App.css';
 
 // ── SCENE DATA ──────────────────────────────────────────────────────────────
@@ -137,44 +141,96 @@ const PROJECT_NAME = 'Villa 127/C — Noicattaro';
 function CompareSlider({ images }) {
   const [pos, setPos] = useState(50);
   const ref = useRef(null);
+  const handleRef = useRef(null);
   const dragging = useRef(false);
 
   const getPos = useCallback((clientX) => {
+    if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
     setPos((x / rect.width) * 100);
   }, []);
 
+  // Desktop mouse events - scoped to document
   useEffect(() => {
-    const up   = () => { dragging.current = false; };
-    const move = (e) => {
+    if (!dragging.current) return;
+
+    const handleMouseMove = (e) => {
       if (!dragging.current) return;
-      getPos(e.touches ? e.touches[0].clientX : e.clientX);
+      e.preventDefault();
+      getPos(e.clientX);
     };
-    window.addEventListener('mouseup', up);
-    window.addEventListener('touchend', up);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('touchmove', move, { passive: true });
+
+    const handleMouseUp = () => {
+      dragging.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
     return () => {
-      window.removeEventListener('mouseup', up);
-      window.removeEventListener('touchend', up);
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('touchmove', move);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [getPos]);
 
-  const start = (e) => {
+  // Touch events - scoped to slider only (prevent Edita conflicts)
+  useEffect(() => {
+    const slider = ref.current;
+    if (!slider) return;
+
+    const handleTouchMove = (e) => {
+      if (!dragging.current || !e.touches.length) return;
+      e.preventDefault();
+      getPos(e.touches[0].clientX);
+    };
+
+    const handleTouchEnd = () => {
+      dragging.current = false;
+      slider.removeEventListener('touchmove', handleTouchMove);
+      slider.removeEventListener('touchend', handleTouchEnd);
+    };
+
+    if (dragging.current) {
+      slider.addEventListener('touchmove', handleTouchMove, { passive: false });
+      slider.addEventListener('touchend', handleTouchEnd, { passive: false });
+    }
+
+    return () => {
+      slider.removeEventListener('touchmove', handleTouchMove);
+      slider.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [getPos]);
+
+  const handleMouseDown = () => {
     dragging.current = true;
-    getPos(e.touches ? e.touches[0].clientX : e.clientX);
+  };
+
+  const handleTouchStart = (e) => {
+    if (!e.touches.length) return;
+    dragging.current = true;
+    e.preventDefault();
+    getPos(e.touches[0].clientX);
   };
 
   return (
-    <div className="compare-wrap" ref={ref} onMouseDown={start} onTouchStart={start}>
+    <div 
+      className="compare-wrap" 
+      ref={ref} 
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
+    >
       <img src={images[0]} alt="variante A" className="compare-img compare-back" />
       <div className="compare-front" style={{ width: `${pos}%` }}>
         <img src={images[1]} alt="variante B" className="compare-img" />
       </div>
-      <div className="compare-handle" style={{ left: `${pos}%` }}>
+      <div 
+        className="compare-handle" 
+        style={{ left: `${pos}%` }}
+        ref={handleRef}
+      >
         <div className="compare-line" />
         <div className="compare-knob">⇔</div>
       </div>
@@ -511,5 +567,50 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── APP WITH AUTH WRAPPER ────────────────────────────────────────────────────
+function AppContent() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--ink)',
+        color: 'var(--paper)',
+        fontFamily: 'var(--font-body)',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '24px', marginBottom: '16px' }}>IEL</div>
+          <p style={{ color: 'var(--paper-dim)' }}>Caricamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  // User is authenticated
+  return <App />;
+}
+
+// ── EXPORT WITH PROVIDERS ────────────────────────────────────────────────────
+import { AuthProvider } from './auth/AuthContext';
+import { ProjectProvider } from './context/ProjectContext';
+
+export default function IELApp() {
+  return (
+    <AuthProvider>
+      <ProjectProvider projectId="villa-127c">
+        <AppContent />
+      </ProjectProvider>
+    </AuthProvider>
   );
 }

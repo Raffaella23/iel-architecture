@@ -1,6 +1,1 @@
-﻿
-cd C:\Users\ciani\source\repos\Raffaella23\iel-architecture; git add vercel.json{  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "nodeVersion": "18.x"
-}
+{"buildCommand":"npm run build","outputDirectory":"dist","framework":"vite"}

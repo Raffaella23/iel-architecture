@@ -1,57 +1,24 @@
 {
   "name": "iel-architecture",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
-  "type": "module",
   "dependencies": {
     "@react-three/fiber": "^8.15.0",
     "@react-three/drei": "^9.88.0",
     "three": "^0.158.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "qrcode.react": "^3.1.0",
-    "firebase": "^10.7.0"
+    "qrcode.react": "^3.1.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint src --ext .js,.jsx,.ts,.tsx"
+    "start": "react-scripts start",
+    "build": "react-scripts build"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8",
-    "eslint": "^8.54.0",
-    "eslint-plugin-react": "^7.33.2"
-  },
-  "eslintConfig": {
-    "extends": [
-      "eslint:recommended",
-      "plugin:react/recommended"
-    ],
-    "parserOptions": {
-      "ecmaVersion": 2021,
-      "sourceType": "module",
-      "ecmaFeatures": {
-        "jsx": true
-      }
-    },
-    "settings": {
-      "react": {
-        "version": "detect"
-      }
-    }
+    "react-scripts": "5.0.1"
   },
   "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
   }
 }

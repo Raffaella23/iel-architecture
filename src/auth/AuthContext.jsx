@@ -8,7 +8,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { auth, firebaseConfigReady } from '../firebase';
 
 const AuthContext = createContext();
 
@@ -19,6 +19,12 @@ export const AuthProvider = ({ children }) => {
 
   // Listen to auth state changes
   useEffect(() => {
+    if (!firebaseConfigReady || !auth) {
+      setLoading(false);
+      setError('Configurazione Firebase mancante. Aggiungi le variabili ambiente su Vercel per attivare il login.');
+      return undefined;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -31,6 +37,7 @@ export const AuthProvider = ({ children }) => {
   // Google Sign-In
   const signInWithGoogle = async () => {
     try {
+      if (!auth) throw new Error('Firebase Auth non configurato');
       setError(null);
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
@@ -43,6 +50,7 @@ export const AuthProvider = ({ children }) => {
   // Apple Sign-In
   const signInWithApple = async () => {
     try {
+      if (!auth) throw new Error('Firebase Auth non configurato');
       setError(null);
       const provider = new OAuthProvider('apple.com');
       provider.addScope('email');
@@ -57,6 +65,7 @@ export const AuthProvider = ({ children }) => {
   // Microsoft Sign-In
   const signInWithMicrosoft = async () => {
     try {
+      if (!auth) throw new Error('Firebase Auth non configurato');
       setError(null);
       const provider = new OAuthProvider('microsoft.com');
       provider.setCustomParameters({
@@ -72,6 +81,7 @@ export const AuthProvider = ({ children }) => {
   // Email/Password Sign-Up
   const signUpWithEmail = async (email, password) => {
     try {
+      if (!auth) throw new Error('Firebase Auth non configurato');
       setError(null);
       await createUserWithEmailAndPassword(auth, email, password);
     } catch (err) {
@@ -83,6 +93,7 @@ export const AuthProvider = ({ children }) => {
   // Email/Password Sign-In
   const signInWithEmail = async (email, password) => {
     try {
+      if (!auth) throw new Error('Firebase Auth non configurato');
       setError(null);
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
@@ -94,6 +105,7 @@ export const AuthProvider = ({ children }) => {
   // Sign Out
   const logout = async () => {
     try {
+      if (!auth) return;
       setError(null);
       await signOut(auth);
     } catch (err) {
@@ -106,6 +118,7 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     error,
+    firebaseConfigReady,
     isAdmin,
     signInWithGoogle,
     signInWithApple,

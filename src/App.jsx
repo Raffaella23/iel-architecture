@@ -377,7 +377,7 @@ function DecisionSummary({ pins, comments, onRestart }) {
 }
 
 // ── MAIN APP ────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [phase, setPhase] = useState('welcome');
   const [activeScene, setActiveScene] = useState(0);
   const [activeMood, setActiveMood] = useState(MOODS[0]);

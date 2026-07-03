@@ -490,7 +490,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   position: absolute;
   inset: 0;
   z-index: 5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.draw-canvas.is-enabled {
   cursor: crosshair;
+  pointer-events: auto;
 }
 
 .edita-hint {
@@ -513,6 +519,36 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 
 .draw-layer-wrap:hover .edita-hint,
 .edita-hint.is-flashing { opacity: 1; }
+
+.edita-toggle-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 7;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(13,12,10,0.78);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.edita-toggle-btn:hover,
+.edita-toggle-btn.is-active {
+  background: var(--bronze);
+  color: var(--ink);
+  border-color: var(--bronze);
+}
+
+.edita-toggle-btn--mobile {
+  top: auto;
+  bottom: 10px;
+}
 
 /* zoom trigger — sopra al canvas di disegno, non ci interferisce */
 .zoom-btn {

@@ -405,7 +405,7 @@ function BottomNav({ onNavigate }) {
 
 /* ---------------- DRAW LAYER (azione "Edita") ---------------- */
 
-function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef }) {
+function DrawLayer({ hotspots, isDrawing, enabled, onDrawingChange, onMark, containerRef }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const points = useRef([]);
@@ -437,6 +437,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   };
 
   const onPointerDown = (e) => {
+    if (!enabled) return;
     e.preventDefault();
     drawing.current = true;
     points.current = [getPos(e)];
@@ -485,7 +486,7 @@ function DrawLayer({ hotspots, isDrawing, onDrawingChange, onMark, containerRef 
   return (
     <canvas
       ref={canvasRef}
-      className={"draw-canvas" + (isDrawing ? " is-flashing" : "")}
+      className={"draw-canvas" + (isDrawing ? " is-flashing" : "") + (enabled ? " is-enabled" : "")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -625,7 +626,7 @@ function useScrollParallax(ref) {
   return progress;
 }
 
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, onDraw, onChoose, dnaMateriali, onZoom }) {
+function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onChoose, dnaMateriali, onZoom }) {
   const cardRef = useRef(null);
   const frameRef = useRef(null);
   const progress = useScrollParallax(cardRef);
@@ -646,10 +647,21 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
         <DrawLayer
           hotspots={decision.hotspots}
           isDrawing={isDrawing}
+          enabled={editEnabled}
           onDrawingChange={onDraw.setDrawing}
           onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, frameRef)}
           containerRef={frameRef}
         />
+        <button
+          className={"edita-toggle-btn" + (editEnabled ? " is-active" : "")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleEdit(decision.id);
+          }}
+          type="button"
+        >
+          {editEnabled ? "Edita attivo" : "Attiva Edita"}
+        </button>
         <button
           className="zoom-btn"
           onClick={(e) => { e.stopPropagation(); onZoom(option.image, option.label); }}
@@ -657,7 +669,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
         >
           ⤢
         </button>
-        <span className="edita-hint">Edita — disegna per lasciare un segno</span>
+        <span className="edita-hint">{editEnabled ? "Edita attivo — disegna per lasciare un segno" : "Attiva Edita per iniziare a disegnare"}</span>
       </div>
       <div className="compare-card__body">
         <div className="compare-card__label">{option.label}</div>
@@ -682,7 +694,7 @@ function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, on
 
 /* ---------------- MOBILE COMPARE SLIDER ---------------- */
 
-function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZoom }) {
+function MobileCompareCard({ decision, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onChoose, onZoom }) {
   const [pos, setPos] = useState(50);
   const wrapRef = useRef(null);
   const dragging = useRef(false);
@@ -694,14 +706,22 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
   };
 
   const onHandleDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     dragging.current = true;
     e.target.setPointerCapture(e.pointerId);
   };
   const onHandleMove = (e) => {
     if (!dragging.current) return;
+    e.preventDefault();
+    e.stopPropagation();
     setFromClientX(e.clientX);
   };
-  const onHandleUp = () => {
+   const onHandleUp = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     dragging.current = false;
   };
 
@@ -724,10 +744,23 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
           <DrawLayer
             hotspots={decision.hotspots}
             isDrawing={isDrawing}
+            enabled={editEnabled}
             onDrawingChange={onDraw.setDrawing}
             onMark={(area, anchor) => onDraw.onMark(decision.id, area, anchor, wrapRef)}
             containerRef={wrapRef}
           />
+        )}
+        {chosen && (
+          <button
+            className={"edita-toggle-btn edita-toggle-btn--mobile" + (editEnabled ? " is-active" : "")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleEdit(decision.id);
+            }}
+            type="button"
+          >
+            {editEnabled ? "Edita attivo" : "Attiva Edita"}
+          </button>
         )}
         <button
           className="zoom-btn"
@@ -762,9 +795,11 @@ function MobileCompareCard({ decision, chosen, isDrawing, onDraw, onChoose, onZo
         </button>
       </div>
       <div className="edita-mobile-status">
-        {chosen
-          ? "✎ Edita attivo — disegna col dito per lasciare un segno"
-          : "Scegli una versione per attivare Edita e poter disegnare"}
+        {!chosen
+          ? "Scegli una versione per sbloccare Edita"
+          : editEnabled
+          ? "✎ Edita attivo — ora puoi disegnare col dito senza interferire con lo slider"
+          : "Tocca “Attiva Edita” per iniziare a disegnare"}
       </div>
     </div>
   );
@@ -972,6 +1007,7 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [activeEditDecision, setActiveEditDecision] = useState(null);
   const [navActive, setNavActive] = useState("progetto");
   const [showDNA, setShowDNA] = useState(false);
   const [showIntelligenceSummary, setShowIntelligenceSummary] = useState(false);
@@ -1018,13 +1054,16 @@ export default function App() {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
     } else if (id === "edita") {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-      setIsDrawing(true);
-      setTimeout(() => setIsDrawing(false), 1600);
     } else if (id === "intelligence") {
       setShowIntelligenceSummary(true);
     } else if (id === "dna") {
       setShowDNA(true);
     }
+  };
+
+  const handleToggleEdit = (decisionId) => {
+    setActiveEditDecision((prev) => (prev === decisionId ? null : decisionId));
+    setIsDrawing(false);
   };
 
   const handleChoose = (decisionId, optionKey, option) => {
@@ -1215,6 +1254,8 @@ export default function App() {
                   optionKey="optionA"
                   chosen={choices[decision.id] === "optionA"}
                   isDrawing={isDrawing}
+                  editEnabled={activeEditDecision === decision.id}
+                  onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
@@ -1226,6 +1267,8 @@ export default function App() {
                   optionKey="optionB"
                   chosen={choices[decision.id] === "optionB"}
                   isDrawing={isDrawing}
+                  editEnabled={activeEditDecision === decision.id}
+                  onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   dnaMateriali={dna.materiali}
@@ -1240,6 +1283,8 @@ export default function App() {
                   decision={decision}
                   chosen={choices[decision.id]}
                   isDrawing={isDrawing}
+                  editEnabled={activeEditDecision === decision.id}
+                  onToggleEdit={handleToggleEdit}
                   onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
                   onChoose={handleChoose}
                   onZoom={(src, alt) => setZoom({ src, alt })}

@@ -1,6 +1,5 @@
-{
-  {
-  "buildCommand": "npm run build",
+﻿
+echo '{"buildCommand":"npm run build","outputDirectory":"dist","framework":"vite","nodeVersion":"18.x"}' > vercel.json{  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
   "nodeVersion": "18.x"

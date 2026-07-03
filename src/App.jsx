@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from './auth/AuthContext';
 import { useProject } from './context/ProjectContext';
 import LoginScreen from './components/LoginScreen';
+import { AuthProvider } from './auth/AuthContext';
+import { ProjectProvider } from './context/ProjectContext';
 import './App.css';
 
 // ── SCENE DATA ──────────────────────────────────────────────────────────────
@@ -600,10 +601,6 @@ function AppContent() {
   // User is authenticated
   return <App />;
 }
-
-// ── EXPORT WITH PROVIDERS ────────────────────────────────────────────────────
-import { AuthProvider } from './auth/AuthContext';
-import { ProjectProvider } from './context/ProjectContext';
 
 export default function IELApp() {
   return (

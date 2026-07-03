@@ -77,6 +77,37 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   gap: 4px;
 }
 
+.top-nav__session-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.top-nav__session {
+  color: var(--paper-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.top-nav__session-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-radius: 999px;
+}
+
+.top-nav__session-btn:hover {
+  background: var(--bronze);
+  color: var(--ink);
+  border-color: var(--bronze);
+}
+
 .top-nav__link {
   background: none;
   border: none;
@@ -98,6 +129,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 
 @media (max-width: 768px) {
   .top-nav__links { display: none; }
+  .top-nav__session { display: none; }
 }
 
 /* ---------------- PROGRESS BAR ---------------- */
@@ -211,6 +243,133 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .hero__cta:hover {
   background: var(--bronze);
   color: var(--ink);
+}
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(8, 8, 7, 0.74);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(560px, 94vw);
+  border: 1px solid var(--line);
+  background: rgba(23, 20, 15, 0.96);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  padding: 28px;
+}
+
+.login-panel__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bronze-glow);
+  margin-bottom: 10px;
+}
+
+.login-panel__title {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 5vw, 42px);
+}
+
+.login-panel__body,
+.login-panel__note {
+  color: var(--paper-dim);
+  line-height: 1.6;
+}
+
+.login-panel__providers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.login-provider-btn,
+.login-submit-btn,
+.login-panel__close {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper);
+  min-height: 46px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-provider-btn:hover,
+.login-submit-btn:hover,
+.login-panel__close:hover {
+  background: rgba(201, 161, 90, 0.12);
+  border-color: var(--bronze);
+}
+
+.login-panel__divider {
+  margin: 18px 0 14px;
+  color: var(--paper-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.login-panel__form {
+  display: grid;
+  gap: 10px;
+}
+
+.login-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(13, 12, 10, 0.9);
+  color: var(--paper);
+  min-height: 46px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.login-input::placeholder {
+  color: var(--paper-dim);
+}
+
+.login-panel__note {
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.login-panel__error {
+  margin-top: 14px;
+  border: 1px solid rgba(181, 87, 63, 0.55);
+  color: #f2c2b7;
+  background: rgba(181, 87, 63, 0.08);
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.login-panel__close {
+  margin-top: 16px;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .login-panel {
+    padding: 20px;
+  }
+
+  .login-panel__providers {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* bottom pill nav (mobile) */
@@ -935,17 +1094,40 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 }
 
 .placeholder-card {
+  position: relative;
+  overflow: hidden;
   border: 1px dashed var(--line);
   border-radius: var(--radius);
-  padding: 26px 18px;
+  padding: 0;
   text-align: center;
   color: var(--paper-dim);
+  background: var(--ink-soft);
+  min-height: 220px;
+}
+
+.placeholder-card:hover .placeholder-card__img { transform: scale(1.03); }
+
+.placeholder-card__img {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  transition: transform 0.35s var(--ease);
 }
 
 .placeholder-card__icon {
   font-size: 22px;
-  margin-bottom: 10px;
+  margin: 26px 0 10px;
   color: var(--bronze-glow);
+}
+
+.placeholder-card__overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 14px 12px;
+  background: linear-gradient(180deg, rgba(13,12,10,0.02) 0%, rgba(13,12,10,0.86) 55%, rgba(13,12,10,0.96) 100%);
 }
 
 .placeholder-card__label {
@@ -953,12 +1135,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--paper);
 }
 
 .placeholder-card__sub {
   font-size: 11px;
   margin-top: 6px;
-  opacity: 0.7;
+  opacity: 0.88;
 }
 
 /* ---------------- DNA VIEW / INTELLIGENCE SUMMARY (panel laterale) ---------------- */

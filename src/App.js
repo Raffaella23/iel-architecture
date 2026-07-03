@@ -47,6 +47,7 @@ import "./App.css";
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
 const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
 const ANNOTATIONS_STORAGE_KEY = "iel_villa127c_annotations_v01";
+const AUTH_STORAGE_KEY = "iel_villa127c_auth_v01";
 
 const QUICK_CHOICES = [
   "Più privacy",
@@ -106,14 +107,14 @@ const DECISIONS = [
 ];
 
 const PLACEHOLDERS = [
-  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤" },
-  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥" },
-  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧" },
-  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨" },
-  { id: "prospetto_est", label: "Prospetto Est", icon: "◩" },
-  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪" },
-  { id: "interrato", label: "Piano interrato", icon: "▨" },
-  { id: "giardino", label: "Giardino e pertinenze", icon: "❖" },
+  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤", image: "/Placeholdersez1.png" },
+  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥", image: "/Placeholdersez2.png" },
+  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧", image: "/edificio2.png" },
+  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨", image: "/PlaceholderProspettosud.png" },
+  { id: "prospetto_est", label: "Prospetto Est", icon: "◩", image: "/Placeholderprospettoest.png" },
+  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪", image: "/PlaceholderProspettoOvest.png" },
+  { id: "interrato", label: "Piano interrato", icon: "▨", image: "/PlaceholderPianoInterrato.png" },
+  { id: "giardino", label: "Giardino e pertinenze", icon: "❖", image: "/PlaceholderVistaprospettica.png" },
 ];
 
 function emptyDNA() {
@@ -167,6 +168,15 @@ function loadDNA() {
     return { ...emptyDNA(), ...parsed };
   } catch {
     return emptyDNA();
+  }
+}
+
+function loadAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -412,7 +422,7 @@ function HeroMonolith() {
 
 /* ---------------- TOP NAV + BOTTOM NAV ---------------- */
 
-function TopNav({ active, onNavigate }) {
+function TopNav({ active, onNavigate, authSession, onOpenLogin, onLogout }) {
   const items = [
     { id: "progetto", label: "Progetto" },
     { id: "edita", label: "Edita" },
@@ -433,6 +443,16 @@ function TopNav({ active, onNavigate }) {
           </button>
         ))}
       </div>
+      <div className="top-nav__session-wrap">
+        {authSession ? (
+          <>
+            <span className="top-nav__session">{authSession.email}</span>
+            <button className="top-nav__session-btn" onClick={onLogout}>Esci</button>
+          </>
+        ) : (
+          <button className="top-nav__session-btn" onClick={onOpenLogin}>Accedi</button>
+        )}
+      </div>
     </nav>
   );
 }
@@ -449,6 +469,71 @@ function BottomNav({ onNavigate }) {
       <button className="bottom-nav__btn" onClick={() => onNavigate("dna")} aria-label="DNA">
         🧬
       </button>
+    </div>
+  );
+}
+
+function LoginOverlay({ open, authError, form, onChange, onEmailAccess, onProviderClick, onClose }) {
+  if (!open) return null;
+
+  return (
+    <div className="login-overlay" onClick={onClose}>
+      <div className="login-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="login-panel__eyebrow">Ingresso protetto</div>
+        <h2 className="login-panel__title">Accedi al progetto</h2>
+        <p className="login-panel__body">
+          La Hero resta pubblica. Le interazioni che modificano Project DNA, annotazioni e decisioni richiedono accesso.
+        </p>
+
+        <div className="login-panel__providers">
+          {[
+            ["google", "Google"],
+            ["apple", "Apple"],
+            ["microsoft", "Microsoft"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className="login-provider-btn"
+              onClick={() => onProviderClick(label)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="login-panel__divider">oppure</div>
+
+        <div className="login-panel__form">
+          <input
+            className="login-input"
+            type="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => onChange("email", e.target.value)}
+          />
+          <input
+            className="login-input"
+            type="password"
+            placeholder="Password"
+            value={form.password}
+            onChange={(e) => onChange("password", e.target.value)}
+          />
+          <button type="button" className="login-submit-btn" onClick={onEmailAccess}>
+            Accedi con email
+          </button>
+        </div>
+
+        <div className="login-panel__note">
+          Stato attuale: accesso locale prototipo via email. Google / Apple / Microsoft verranno attivati con Firebase su Vercel.
+        </div>
+
+        {authError && <div className="login-panel__error">{authError}</div>}
+
+        <button type="button" className="login-panel__close" onClick={onClose}>
+          Chiudi
+        </button>
+      </div>
     </div>
   );
 }
@@ -977,13 +1062,23 @@ function BuildingOverviewSection({ onZoom }) {
 
 /* ---------------- PLACEHOLDER CARD ---------------- */
 
-function PlaceholderCard({ item }) {
+function PlaceholderCard({ item, onZoom }) {
   return (
-    <div className="placeholder-card">
-      <div className="placeholder-card__icon">{item.icon}</div>
-      <div className="placeholder-card__label">{item.label}</div>
-      <div className="placeholder-card__sub">In arrivo</div>
-    </div>
+    <button
+      className="placeholder-card"
+      type="button"
+      onClick={() => item.image && onZoom(item.image, item.label)}
+    >
+      {item.image ? (
+        <img src={item.image} alt={item.label} className="placeholder-card__img" />
+      ) : (
+        <div className="placeholder-card__icon">{item.icon}</div>
+      )}
+      <div className="placeholder-card__overlay">
+        <div className="placeholder-card__label">{item.label}</div>
+        <div className="placeholder-card__sub">⤢ Tocca per ingrandire</div>
+      </div>
+    </button>
   );
 }
 
@@ -1065,6 +1160,10 @@ function IntelligenceSummaryPanel({ dna, onClose }) {
    ================================================================ */
 
 export default function App() {
+  const [authSession, setAuthSession] = useState(loadAuthSession);
+  const [showLogin, setShowLogin] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [dna, setDna] = useState(loadDNA);
   const [annotations, setAnnotations] = useState(loadAnnotations);
   const [choices, setChoices] = useState({});
@@ -1086,6 +1185,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(DNA_STORAGE_KEY, JSON.stringify(dna));
   }, [dna]);
+
+  useEffect(() => {
+    if (authSession) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authSession));
+    else localStorage.removeItem(AUTH_STORAGE_KEY);
+  }, [authSession]);
 
   useEffect(() => {
     localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
@@ -1117,6 +1221,11 @@ export default function App() {
   }, [dna.stile, dna.materiali]);
 
   const handleNavigate = (id) => {
+    if (!authSession && id !== "progetto") {
+      setShowLogin(true);
+      setAuthError("Accedi per modificare il progetto, usare Edita o aprire i pannelli riservati.");
+      return;
+    }
     setNavActive(id);
     if (id === "progetto") {
       decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
@@ -1129,12 +1238,49 @@ export default function App() {
     }
   };
 
+  const requireAccess = (message) => {
+    if (authSession) return true;
+    setShowLogin(true);
+    setAuthError(message);
+    return false;
+  };
+
+  const handleAuthFieldChange = (key, value) => {
+    setAuthForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleEmailAccess = () => {
+    if (!authForm.email.trim() || !authForm.password.trim()) {
+      setAuthError("Inserisci email e password per accedere al prototipo protetto.");
+      return;
+    }
+    setAuthSession({
+      provider: "email-preview",
+      email: authForm.email.trim(),
+      loginAt: new Date().toISOString(),
+    });
+    setAuthError("");
+    setShowLogin(false);
+    decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleProviderClick = (provider) => {
+    setAuthError(`${provider} sarà attivato con Firebase su Vercel. Per ora puoi entrare nel prototipo usando email + password.`);
+  };
+
+  const handleLogout = () => {
+    setAuthSession(null);
+    setActiveEditDecision(null);
+    setIsDrawing(false);
+  };
+
   const handleToggleEdit = (decisionId) => {
     setActiveEditDecision((prev) => (prev === decisionId ? null : decisionId));
     setIsDrawing(false);
   };
 
   const handleChoose = (decisionId, optionKey, option) => {
+    if (!requireAccess("Accedi per confermare una versione e salvare la scelta nel Project DNA.")) return;
     setChoices((prev) => ({ ...prev, [decisionId]: optionKey }));
     setDna((prev) => {
       const next = { ...prev, decisioni_raw: { ...prev.decisioni_raw, [decisionId]: optionKey } };
@@ -1146,6 +1292,7 @@ export default function App() {
   };
 
   const handleReact = (decisionId, emoji, evt) => {
+    if (!requireAccess("Accedi per registrare reazioni e aprire Project Intelligence.")) return;
     setReactions((prev) => ({ ...prev, [decisionId]: emoji }));
     setDna((prev) => ({ ...prev, reazioni: { ...prev.reazioni, [decisionId]: emoji } }));
 
@@ -1182,6 +1329,7 @@ export default function App() {
   };
 
   const handleMark = (decisionId, optionKey, area, localAnchor, wrapRef) => {
+    if (!requireAccess("Accedi per creare annotazioni persistenti e attivare il contesto AI.")) return;
     const rect = wrapRef.current.getBoundingClientRect();
     const viewportY = rect.top + localAnchor.y;
     const anchor = {
@@ -1200,6 +1348,7 @@ export default function App() {
   };
 
   const handleOpenAnnotation = (annotation, wrapRef) => {
+    if (!requireAccess("Accedi per riaprire le annotazioni e il relativo contesto AI.")) return;
     const rect = wrapRef.current.getBoundingClientRect();
     const localX = rect.width * annotation.xRatio;
     const localY = rect.height * annotation.yRatio;
@@ -1302,6 +1451,7 @@ export default function App() {
   };
 
   const handleSendEmail = () => {
+    if (!requireAccess("Accedi per esportare e inviare il Project DNA all'architetto.")) return;
     const dnaLines = [
       `Progetto: ${dna.progetto}`,
       `Cliente: ${dna.cliente}`,
@@ -1338,7 +1488,16 @@ export default function App() {
 
   return (
     <div className="iel-app">
-      <TopNav active={navActive} onNavigate={handleNavigate} />
+      <TopNav
+        active={navActive}
+        onNavigate={handleNavigate}
+        authSession={authSession}
+        onOpenLogin={() => {
+          setShowLogin(true);
+          setAuthError("");
+        }}
+        onLogout={handleLogout}
+      />
       <div className="progress-bar">
         <div
           className="progress-bar__fill"
@@ -1358,8 +1517,17 @@ export default function App() {
           <p className="hero__subtitle">
             Ogni scelta che fai qui diventa parte del Project DNA — e guida il prossimo render.
           </p>
-          <button className="hero__cta" onClick={() => handleNavigate("progetto")}>
-            Inizia
+          <button
+            className="hero__cta"
+            onClick={() => {
+              if (authSession) handleNavigate("progetto");
+              else {
+                setShowLogin(true);
+                setAuthError("");
+              }
+            }}
+          >
+            {authSession ? "Apri il progetto" : "Accedi al progetto"}
           </button>
         </div>
       </section>
@@ -1435,11 +1603,11 @@ export default function App() {
       <section className="decision-section">
         <div className="decision-section__eyebrow">Struttura</div>
         <h2 className="decision-section__title">Sezioni e Prospetti</h2>
-        <p className="decision-section__hint">In arrivo — i placeholder sono pronti a ricevere i file.</p>
+        <p className="decision-section__hint">Le tavole disponibili sono già consultabili. Tocca un'immagine per leggerla meglio.</p>
       </section>
       <div className="placeholder-grid">
         {PLACEHOLDERS.map((p) => (
-          <PlaceholderCard item={p} key={p.id} />
+          <PlaceholderCard item={p} key={p.id} onZoom={(src, alt) => setZoom({ src, alt })} />
         ))}
       </div>
 
@@ -1477,6 +1645,18 @@ export default function App() {
         <IntelligenceSummaryPanel dna={dna} onClose={() => setShowIntelligenceSummary(false)} />
       )}
       {zoom && <ZoomViewer src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)} />}
+      <LoginOverlay
+        open={showLogin}
+        authError={authError}
+        form={authForm}
+        onChange={handleAuthFieldChange}
+        onEmailAccess={handleEmailAccess}
+        onProviderClick={handleProviderClick}
+        onClose={() => {
+          setShowLogin(false);
+          setAuthError("");
+        }}
+      />
     </div>
   );
 }

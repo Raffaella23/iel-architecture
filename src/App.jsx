@@ -573,7 +573,7 @@ function App() {
 
 // ── APP WITH AUTH WRAPPER ────────────────────────────────────────────────────
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user, loading, firebaseConfigReady } = useAuth();
 
   if (loading) {
     return (
@@ -592,6 +592,10 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  if (!firebaseConfigReady) {
+    return <App />;
   }
 
   if (!user) {

@@ -1,5 +1,13 @@
-// src/lib/annotationRules.js
 // Motore di suggerimenti a regole — zero costo, gira nel browser.
+// v2: matching più tollerante (accenti/maiuscole) + query immagine
+// arricchita con il contesto reale della scena (materiali/soggetto).
+
+function normalize(str) {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // rimuove accenti
+}
 
 const RULES = [
   {
@@ -33,7 +41,7 @@ const RULES = [
     imageSearchQuery: 'wood slat screen privacy facade',
   },
   {
-    keywords: ['freddo colore', 'grigio', 'triste', 'spento'],
+    keywords: ['grigio', 'triste', 'spento', 'anonimo'],
     category: 'colore',
     text: 'Un accento cromatico caldo (terracotta o ocra) su una sola parete o elemento d\'arredo bilancia la palette senza stravolgere l\'insieme già progettato.',
     imageSearchQuery: 'terracotta accent wall warm interior',
@@ -50,28 +58,44 @@ const RULES = [
     text: 'Illuminazione calda a temperatura 2700K nelle zone di sosta (invece della luce neutra da lavoro) cambia sensibilmente la percezione di calore dell\'ambiente la sera.',
     imageSearchQuery: 'warm ambient lighting evening living room',
   },
-]
+];
+
+// Estrae un termine materico/contestuale dalla scena (es. "Travertino · Rovere")
+// per rendere la ricerca immagine coerente con il progetto reale, non generica.
+function sceneContextHint(scene) {
+  if (!scene?.subtitle) return '';
+  const firstTerm = scene.subtitle.split('·')[0].trim();
+  return firstTerm || '';
+}
 
 function fallbackSuggestion(scene) {
   return [{
     category: 'dettaglio',
     text: `Per approfondire l'osservazione su "${scene.title}", segnaliamo il punto all'architetto per una valutazione mirata sul posto — i materiali già previsti (${scene.subtitle}) offrono margine di intervento locale senza modifiche strutturali.`,
     imageSearchQuery: `${scene.title} architecture detail`,
-  }]
+  }];
 }
 
 export function getRuleBasedSuggestions(annotationText, scene) {
-  const text = annotationText.toLowerCase()
+  const text = normalize(annotationText);
   const matched = RULES.filter(rule =>
-    rule.keywords.some(kw => text.includes(kw))
-  )
+    rule.keywords.some(kw => text.includes(normalize(kw)))
+  );
 
-  const proposals = matched.length > 0 ? matched.slice(0, 3) : fallbackSuggestion(scene)
+  const base = matched.length > 0 ? matched.slice(0, 3) : fallbackSuggestion(scene);
+  const hint = sceneContextHint(scene);
+
+  // Arricchisce ogni query immagine con il contesto reale della scena,
+  // così la foto trovata è coerente con i materiali/soggetto del progetto.
+  const proposals = base.map(p => ({
+    ...p,
+    imageSearchQuery: hint ? `${p.imageSearchQuery} ${hint}` : p.imageSearchQuery,
+  }));
 
   return {
     reasoning: matched.length > 0
       ? `L'osservazione sulla scena "${scene.title}" richiama aspetti già presenti nel progetto (${scene.subtitle}); le proposte seguenti intervengono su quel contesto specifico.`
       : `Osservazione registrata su "${scene.title}" — proposta generale in attesa di valutazione diretta dell'architetto.`,
     proposals,
-  }
+  };
 }

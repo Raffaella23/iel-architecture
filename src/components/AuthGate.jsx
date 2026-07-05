@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 
-// 🔑 Codice di accesso progetto — cambialo quando vuoi
 const ACCESS_CODE = 'villa127'
 
 export default function AuthGate({ children }) {
@@ -17,11 +16,24 @@ export default function AuthGate({ children }) {
   }, [])
 
   useEffect(() => {
-    document.body.style.overflow = authenticated ? '' : 'hidden'
-    document.body.style.touchAction = authenticated ? '' : 'none'
+    const preventTouch = (e) => e.preventDefault()
+
+    if (!authenticated) {
+      document.documentElement.style.overflow = 'hidden'
+      document.body.style.overflow = 'hidden'
+      document.body.style.touchAction = 'none'
+      document.body.style.position = 'fixed'
+      document.body.style.width = '100%'
+      document.addEventListener('touchmove', preventTouch, { passive: false })
+    }
+
     return () => {
+      document.documentElement.style.overflow = ''
       document.body.style.overflow = ''
       document.body.style.touchAction = ''
+      document.body.style.position = ''
+      document.body.style.width = ''
+      document.removeEventListener('touchmove', preventTouch)
     }
   }, [authenticated])
 

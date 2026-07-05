@@ -1,1956 +1,536 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import "./App.css";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import './App.css';
+import { getDesignSuggestions } from './lib/annotationAI';
+import { buildLycheePrompt } from './lib/lycheePrompt';
 
-/* ============================================================
-   IEL — Interactive Experience Layer — Villa 127/C
-   App.js v0.9 — fix mirati, nessuna riscrittura
-
-   Fix di questa versione:
-   - Mobile: "Edita" (disegno col dito) si attiva SOLO dopo aver scelto la versione,
-     evita conflitti col trascinamento dello slider prima della scelta.
-   - Bug di posizionamento dei popup risolto: .pi-anchor è position:absolute ma le
-     coordinate erano calcolate come fossero position:fixed (mancava lo scroll offset),
-     per questo i popup comparivano sempre vicino all'hero. Ora sono ancorati al punto
-     esatto (segno disegnato o bottone reazione toccato) in coordinate di pagina reali.
-   - Zoom immagini: nuovo ZoomViewer con pinch a due dita, rotellina, doppio tap/click,
-     trascinamento quando ingrandito. Disponibile su tutte le planimetrie e sulla
-     nuova galleria vista d'insieme.
-   - Nuova sezione "Vista d'insieme & Palette Materiali" con edificio1.png/edificio2.png,
-     zoomabile per leggere i dettagli materici.
-
-   v0.8 — Cosa cambia rispetto a v0.7:
-   - Nav funzionante (Progetto / Edita / Intelligence / DNA) — dal doc "Architectural
-     Decision Intelligence Engine", senza toccare il naming bloccato "Project Intelligence".
-   - "Edita" diventa il nome dell'AZIONE di annotazione (disegnare sul piano),
-     distinta dal popup AI che resta "Project Intelligence".
-   - Project DNA ha un nuovo campo `system_feedback`: note interne per l'architetto,
-     MAI mostrate al cliente, generate insieme all'interpretazione AI.
-   - L'AI risponde sempre in JSON strutturato (interpretation, design_intent,
-     open_questions, system_feedback) — il testo che vede il cliente è SOLO
-     `design_intent`, letto da quel JSON.
-   - Selettore materiali: non è un flusso separato, sono chip che confermano la
-     materialità implicita nella scelta A/B già esistente (Calacatta vs materica calda).
-   - Blur del piano: mai durante il disegno, opzionale/soft quando Project
-     Intelligence è aperta e non si sta disegnando. Default: nessun blur.
-
-   Cosa NON cambia (bloccato, v0.7):
-   - Reazioni emoji 😍 🤔 ❌
-   - Email architetto con DNA completo + reazioni + intenzioni validate
-   - Prompt Lychee editabile prima dell'invio
-   - Project DNA persistente in localStorage, sempre append mai overwrite
-   - Canvas di disegno sopra l'immagine (stesso nodo, non riquadro separato)
-   - 8 placeholder (2 sezioni, 4 prospetti, interrato, giardino)
-   - Naming "Project Intelligence"
-   - Flusso: intent → thinking 1.4s → confirm → saved
-   ============================================================ */
-
-const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
-const DNA_STORAGE_KEY = "iel_villa127c_dna_v08";
-const ANNOTATIONS_STORAGE_KEY = "iel_villa127c_annotations_v01";
-const AUTH_STORAGE_KEY = "iel_villa127c_auth_v01";
-const AUTH_USERS_STORAGE_KEY = "iel_villa127c_auth_users_v01";
-const ADMIN_EMAIL = "cianiraffaella@gmail.com";
-const ADMIN_PASSWORD = "2505";
-const BASE_RENDER_PROMPT =
-  "Villa 127/C, Noicattaro. Architectural design evolution grounded in local stone, calibrated light, domestic privacy, warm contemporary materiality, coherent indoor-outdoor continuity.";
-
-const QUICK_CHOICES = [
-  "Più privacy",
-  "Più luce naturale",
-  "Disposizione arredi",
-  "Più verde",
-  "Costo",
-  "Altro…",
-];
-
-const DECISIONS = [
+// ── SCENE DATA ──────────────────────────────────────────────────────────────
+const SCENES = [
   {
-    id: "piano_terra",
-    title: "Piano Terra",
-    eyebrow: "Sessione Visione — 01",
-    hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
-    optionA: {
-      label: "Versione I",
-      image: "/piano_terra1.png",
-      desc: "Cucina e living rivestiti in marmo Calacatta, superfici lucide e continue.",
-      materiale: "Marmo Calacatta",
-    },
-    optionB: {
-      label: "Versione II",
-      image: "/piano_terra2.png",
-      desc: "Palette materica calda, texture naturali e finiture opache.",
-      materiale: "Materica calda",
-    },
-    hotspots: {
-      cucina: { xMin: 0, xMax: 0.35, yMin: 0, yMax: 0.5 },
-      living: { xMin: 0.35, xMax: 0.7, yMin: 0, yMax: 0.5 },
-      pranzo: { xMin: 0.35, xMax: 0.7, yMin: 0.5, yMax: 1 },
-      "zona notte ospiti": { xMin: 0.7, xMax: 1, yMin: 0, yMax: 1 },
-    },
+    id: 'intro',
+    image: '/edificio2.png',
+    label: 'Il Progetto',
+    title: 'Villa 127/C',
+    subtitle: 'Noicattaro · Puglia',
+    body: 'Una villa degli anni \'70 che diventa residenza contemporanea. Ogni scelta preserva la memoria del luogo mentre costruisce il futuro.',
+    replay: null,
+    mood: false,
   },
   {
-    id: "piano_primo",
-    title: "Piano Primo",
-    eyebrow: "Sessione Visione — 02",
-    hint: "Disegna sopra il piano per lasciare un segno (Edita), oppure scegli la versione.",
-    optionA: {
-      label: "Versione I",
-      image: "/piano_primo_v1.png",
-      desc: "Zona notte padronale con bagno en-suite separato.",
-    },
-    optionB: {
-      label: "Versione II",
-      image: "/piano_primo_v2.png",
-      desc: "Zona notte aperta verso un piccolo living privato.",
-    },
-    hotspots: {
-      "camera padronale": { xMin: 0, xMax: 0.5, yMin: 0, yMax: 0.6 },
-      bagno: { xMin: 0.5, xMax: 0.75, yMin: 0, yMax: 0.6 },
-      "living primo piano": { xMin: 0, xMax: 1, yMin: 0.6, yMax: 1 },
-    },
+    id: 'vision',
+    image: '/edificio1.png',
+    label: 'La Visione',
+    title: 'Luce e sezione',
+    subtitle: 'Vista tramonto · Sezione trasversale',
+    body: 'Tre livelli che dialogano con il paesaggio pugliese. Il piano interrato emerge, il piano rialzato si apre, il piano primo vola.',
+    replay: 'La sezione mostra come ogni livello abbia una relazione diversa con l\'esterno — dal seminterrato raccolto alla terrazza aperta sul cielo.',
+    mood: false,
+  },
+  {
+    id: 'piano1',
+    image: null,
+    images: ['/piano_primo_v1.png', '/piano_primo_v2.png'],
+    label: 'Il Piano',
+    title: 'Planimetria Piano 1',
+    subtitle: 'Confronta le varianti · Scorri lo slider',
+    body: 'Camera padronale con cabina armadio, due camere ragazzi, palestra indipendente. La grande terrazza recuperata diventa il cuore della vita familiare.',
+    replay: 'La vetrata a tutta altezza nasce da un gesto preciso: liberare uno spazio che era stato chiuso nel tempo. Dove c\'era un balcone murato, oggi entra la luce.',
+    mood: true,
+  },
+  {
+    id: 'materiali',
+    image: '/edificio2.png',
+    label: 'I Materiali',
+    title: 'Palette materica',
+    subtitle: 'Travertino · Rovere · Microcemento',
+    body: 'Tre materiali. Una coerenza. Il travertino richiama la pietra pugliese, il rovere porta calore, il microcemento dà rigore contemporaneo.',
+    replay: 'La scelta dei materiali non è estetica — è climatica. Il travertino accumula calore di giorno e lo rilascia di notte.',
+    mood: false,
+  },
+  {
+    id: 'interrato',
+    image: '/PlaceholderPianoInterrato.png',
+    label: 'Interrato',
+    title: 'Piano Interrato',
+    subtitle: 'Spazi di servizio · Zona hobby · Cantina',
+    body: 'Il piano interrato si trasforma in spazio vissuto. Dalla cantina alla zona hobby con biliardo, ogni ambiente ha luce naturale grazie ai pozzi di luce perimetrali.',
+    replay: 'Il seminterrato non è uno spazio residuale — è il fondamento della casa. La scelta di portare luce naturale qui cambia la qualità di vita di tutti i piani.',
+    mood: false,
+  },
+  {
+    id: 'prospetto_est',
+    image: '/Placeholderprospettoest.png',
+    label: 'Prospetto Est',
+    title: 'Facciata Est',
+    subtitle: 'Vista giardino · Sistemazione a verde',
+    body: 'La facciata est si apre sul giardino terrazzato. Le vetrate a tutta altezza creano un dialogo continuo tra interno ed esterno, tra pietra locale e verde mediterraneo.',
+    replay: 'Ogni albero è posizionato per dare ombra in estate senza bloccare il sole invernale. Il progetto del verde è parte integrante dell\'architettura.',
+    mood: false,
+  },
+  {
+    id: 'prospetto_ovest',
+    image: '/PlaceholderProspettoOvest.png',
+    label: 'Prospetto Ovest',
+    title: 'Facciata Ovest',
+    subtitle: 'Ingresso principale · Pietra locale',
+    body: 'La pietra calcarea locale domina la facciata ovest. Un gesto sobrio e radicato nel territorio, che racconta l\'identità pugliese senza folklore.',
+    replay: 'La scelta della pietra locale non è nostalgia — è sostenibilità. Materiale estratto a pochi chilometri, lavorato da artigiani del territorio.',
+    mood: false,
+  },
+  {
+    id: 'prospetto_sud',
+    image: '/PlaceholderProspettosud.png',
+    label: 'Prospetto Sud',
+    title: 'Facciata Sud',
+    subtitle: 'Vista principale · Fronte strada',
+    body: 'Il fronte sud è il biglietto da visita della villa. La composizione volumetrica racconta la stratificazione interna — tre livelli, tre modi di abitare.',
+    replay: 'Il prospetto sud bilancia chiusura e apertura: la pietra protegge, il vetro invita. Una soglia tra il mondo e la vostra casa.',
+    mood: false,
+  },
+  {
+    id: 'sezione1',
+    image: '/Placeholdersez1.png',
+    label: 'Sezione A',
+    title: 'Sezione Trasversale A',
+    subtitle: 'Dal seminterrato alla terrazza',
+    body: 'La sezione rivela l\'anima della casa. La scala diventa elemento scultoreo, il camino è il cuore del soggiorno doppia altezza, la piscina si integra nel giardino.',
+    replay: 'La doppia altezza del soggiorno non è un lusso — è un sistema di ventilazione naturale. L\'aria calda sale, quella fresca entra dal basso. Zero climatizzazione artificiale in primavera e autunno.',
+    mood: false,
+  },
+  {
+    id: 'sezione2',
+    image: '/Placeholdersez2.png',
+    label: 'Sezione B',
+    title: 'Sezione Trasversale B',
+    subtitle: 'Cantina · Living · Terrazza',
+    body: 'La seconda sezione mostra la cantina interrata, il living aperto sul paesaggio e la terrazza che si prolunga nel giardino terrazzato con ulivo secolare.',
+    replay: 'L\'ulivo esistente era il primo vincolo del progetto. Tutta la casa è stata progettata per preservarlo e valorizzarlo come elemento compositivo.',
+    mood: false,
+  },
+  {
+    id: 'vista',
+    image: '/PlaceholderVistaprospettica.png',
+    label: 'Vista 3D',
+    title: 'Vista Prospettica',
+    subtitle: 'Render · Luce naturale',
+    body: 'La vista tridimensionale mostra la villa nel suo paesaggio. Pietra, vetro e verde si fondono in una composizione che appartiene alla Puglia e al tempo presente.',
+    replay: 'Questo render mostra la villa come sarà — non come appare oggi. È un impegno verso una visione condivisa tra voi e il progetto.',
+    mood: false,
   },
 ];
 
-const PLACEHOLDERS = [
-  { id: "sezione_long", label: "Sezione longitudinale", icon: "▤", image: "/Placeholdersez1.png", fallbackImage: "/edificio1.png" },
-  { id: "sezione_trasv", label: "Sezione trasversale", icon: "▥", image: "/Placeholdersez2.png", fallbackImage: "/edificio2.png" },
-  { id: "prospetto_nord", label: "Prospetto Nord", icon: "◧", image: "/edificio2.png", fallbackImage: "/edificio1.png" },
-  { id: "prospetto_sud", label: "Prospetto Sud", icon: "◨", image: "/PlaceholderProspettosud.png", fallbackImage: "/edificio1.png" },
-  { id: "prospetto_est", label: "Prospetto Est", icon: "◩", image: "/Placeholderprospettoest.png", fallbackImage: "/edificio2.png" },
-  { id: "prospetto_ovest", label: "Prospetto Ovest", icon: "◪", image: "/PlaceholderProspettoOvest.png", fallbackImage: "/edificio2.png" },
-  { id: "interrato", label: "Piano interrato", icon: "▨", image: "/PlaceholderPianoInterrato.png", fallbackImage: "/piano_terra1.png" },
-  { id: "giardino", label: "Giardino e pertinenze", icon: "❖", image: "/PlaceholderVistaprospettica.png", fallbackImage: "/edificio1.png" },
+const MOODS = [
+  { id: 'giorno',   label: '☀️ Giorno',   filter: 'brightness(1.1) saturate(1.0)' },
+  { id: 'tramonto', label: '🌇 Tramonto', filter: 'brightness(0.9) saturate(1.3) sepia(0.2)' },
+  { id: 'notte',    label: '🌙 Notte',    filter: 'brightness(0.45) saturate(0.8) hue-rotate(200deg)' },
 ];
 
-function emptyDNA() {
-  return {
-    progetto: "Villa 127/C — Noicattaro",
-    cliente: "Gabriele e Ludovica",
-    creato: new Date().toISOString(),
-    stile: [],
-    materiali: [],
-    luce: [],
-    privacy: [],
-    outdoor: [],
-    funzioni_richieste: [],
-    elementi_rifiutati: [],
-    decisioni_raw: {},
-    reazioni: {},
-    intenzioni_validate: [],
-    dna_updates: [],
-    inspiration_objects: [],
-    render_prompt_current: BASE_RENDER_PROMPT,
-    render_prompt_history: [
-      {
-        version: 1,
-        prompt: BASE_RENDER_PROMPT,
-        reason: "Baseline architettonica iniziale del progetto.",
-        area: "progetto generale",
-        confidence: 0.6,
-        ts: new Date().toISOString(),
-      },
-    ],
-    // NUOVO — solo per architetto, mai mostrato al cliente
-    system_feedback: [],
+const PINS = [
+  { emoji: '❤️', label: 'Mi piace' },
+  { emoji: '💡', label: 'Idea' },
+  { emoji: '🤔', label: 'Da rivedere' },
+];
+
+const SHARE_URL = window.location.href;
+const CLIENT_NAME = 'Gabriele e Ludovica';
+const PROJECT_NAME = 'Villa 127/C — Noicattaro';
+
+// ── COMPARE SLIDER ──────────────────────────────────────────────────────────
+function CompareSlider({ images }) {
+  const [pos, setPos] = useState(50);
+  const ref = useRef(null);
+  const dragging = useRef(false);
+
+  const getPos = useCallback((clientX) => {
+    const rect = ref.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    setPos((x / rect.width) * 100);
+  }, []);
+
+  useEffect(() => {
+    const up   = () => { dragging.current = false; };
+    const move = (e) => {
+      if (!dragging.current) return;
+      getPos(e.touches ? e.touches[0].clientX : e.clientX);
+    };
+    window.addEventListener('mouseup', up);
+    window.addEventListener('touchend', up);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move, { passive: true });
+    return () => {
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('touchend', up);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('touchmove', move);
+    };
+  }, [getPos]);
+
+  const start = (e) => {
+    dragging.current = true;
+    getPos(e.touches ? e.touches[0].clientX : e.clientX);
   };
-}
 
-function AnnotationMarks({ annotations, onOpen }) {
   return (
-    <>
-      {annotations.map((ann) => (
-        <button
-          key={ann.id}
-          type="button"
-          className="annotation-mark"
-          style={{ left: `${ann.xRatio * 100}%`, top: `${ann.yRatio * 100}%` }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(ann);
-          }}
-          title={ann.area}
-        >
-          <span className="annotation-mark__dot" />
-          {ann.suggestion && <span className="annotation-mark__hint">{ann.suggestion}</span>}
-        </button>
-      ))}
-    </>
+    <div className="compare-wrap" ref={ref} onMouseDown={start} onTouchStart={start}>
+      <img src={images[0]} alt="variante A" className="compare-img compare-back" />
+      <div className="compare-front" style={{ width: `${pos}%` }}>
+        <img src={images[1]} alt="variante B" className="compare-img" />
+      </div>
+      <div className="compare-handle" style={{ left: `${pos}%` }}>
+        <div className="compare-line" />
+        <div className="compare-knob">⇔</div>
+      </div>
+      <div className="compare-labels">
+        <span className="compare-tag left">Variante A</span>
+        <span className="compare-tag right">Variante B</span>
+      </div>
+    </div>
   );
 }
 
-function loadDNA() {
-  try {
-    const raw = localStorage.getItem(DNA_STORAGE_KEY);
-    if (!raw) return emptyDNA();
-    const parsed = JSON.parse(raw);
-    return { ...emptyDNA(), ...parsed };
-  } catch {
-    return emptyDNA();
-  }
-}
-
-function loadAuthUsers() {
-  const seed = [{ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, role: "architect" }];
-  try {
-    const raw = localStorage.getItem(AUTH_USERS_STORAGE_KEY);
-    if (!raw) return seed;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return seed;
-    return parsed.some((user) => user.email === ADMIN_EMAIL) ? parsed : [...parsed, seed[0]];
-  } catch {
-    return seed;
-  }
-}
-
-function loadAuthSession() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function loadAnnotations() {
-  try {
-    const raw = localStorage.getItem(ANNOTATIONS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function createAnnotationRecord({ decisionId, optionKey, area, localAnchor, frameRect }) {
-  return {
-    id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    decisionId,
-    optionKey,
-    area,
-    xRatio: frameRect.width ? localAnchor.x / frameRect.width : 0.5,
-    yRatio: frameRect.height ? localAnchor.y / frameRect.height : 0.5,
-    createdAt: new Date().toISOString(),
-    status: "active",
-    quickChoice: null,
-    customText: "",
-    aiResult: null,
-    suggestion: "",
-  };
-}
-
-function buildArchitecturalInterpretation({ area, quickChoice, customText }) {
-  const request = (customText || quickChoice || "miglioramento spaziale").trim();
-  const style = request.toLowerCase().includes("privacy")
-    ? "contemporary private retreat"
-    : request.toLowerCase().includes("luce")
-    ? "light-driven mediterranean minimalism"
-    : request.toLowerCase().includes("verde")
-    ? "indoor-outdoor mediterranean living"
-    : "warm contemporary architectural refinement";
-  const materials = request.toLowerCase().includes("caldo")
-    ? ["rovere naturale", "intonaco minerale caldo", "pietra locale spazzolata"]
-    : ["travertino chiaro", "rovere naturale", "microcemento opaco"];
-  const colors = request.toLowerCase().includes("verde")
-    ? ["sabbia", "salvia", "bronzo ossidato"]
-    : ["avorio caldo", "pietra chiara", "bronzo brunito"];
-  const lighting = request.toLowerCase().includes("luce")
-    ? "Ampliare l'apporto zenitale e laterale con controllo dell'abbagliamento, integrazione di luce indiretta serale e gerarchia luminosa per profondità spaziale."
-    : "Consolidare una luce calda stratificata: tagli indiretti, accent lighting su materiali e sorgenti schermate per comfort visivo serale.";
-  const atmosphere = request.toLowerCase().includes("privacy")
-    ? "Atmosfera raccolta, protetta e più introspettiva."
-    : "Atmosfera calma, architettonica e materica, con leggibilità chiara dei volumi.";
-  const functional = request.toLowerCase().includes("arredi")
-    ? "Riorganizzare i pieni e i vuoti per rendere gli arredi parte della sequenza architettonica, migliorando percorrenze e zone di sosta."
-    : "Ottimizzare uso, transizioni e leggibilità dell'area segnata mantenendo coerenza con il progetto generale.";
-  const risks = request.toLowerCase().includes("luce")
-    ? ["Possibile eccesso di abbagliamento senza schermature", "necessità di coordinare nuove aperture con il linguaggio di facciata"]
-    : ["Rischio di sovraccarico materico se non calibrato", "necessità di verificare costo e manutenzione nel dettaglio esecutivo"];
-  const benefits = [
-    "Migliore coerenza tra uso quotidiano e intenzione architettonica",
-    "Incremento della qualità percettiva e della leggibilità dello spazio",
-  ];
-  const contextual = [
-    "Verificare allineamento con la palette già presente nel Project DNA",
-    `Coordinare l'intervento con l'area ${area} senza interrompere la continuità compositiva della villa`,
-  ];
-  const proposal = {
-    interpretation: `L'annotazione su ${area} suggerisce una richiesta di ${request.toLowerCase()} da tradurre in una decisione architettonica verificabile.`,
-    design_intent: `L'area ${area} viene reinterpretata come leva progettuale per ${request.toLowerCase()}, mantenendo coerenza materica e spaziale con Villa 127/C.`,
-    materials,
-    lighting_strategy: lighting,
-    atmosphere,
-    functional_improvements: functional,
-    risks,
-    benefits,
-    contextual_recommendations: contextual,
-    confidence: request.toLowerCase().includes("altro") ? 0.67 : 0.82,
-  };
-  return {
-    interpretation: proposal.interpretation,
-    design_intent: proposal.design_intent,
-    open_questions: ["Verificare con il cliente il livello di priorità rispetto alle altre aree annotate."],
-    system_feedback: `Il cliente tende a usare l'annotazione su ${area} per esprimere un obiettivo di ${request.toLowerCase()} più che una preferenza formale isolata.`,
-    proposal,
-    inspiration_object: {
-      style,
-      materials,
-      colors,
-      lighting: lighting,
-      keywords: [area, request, "villa contemporanea", "Puglia", "architettura domestica"],
-      image_prompt: `Architectural concept render for Villa 127/C in Noicattaro, focus on ${area}, ${style}, materials: ${materials.join(", ")}, colors: ${colors.join(", ")}, lighting: ${lighting}, atmosphere: ${atmosphere}, high-detail architectural visualization, no furniture catalog style, coherent Mediterranean contemporary residence.`,
-    },
-  };
-}
-
-function appendUniqueValues(list, values) {
-  return [...new Set([...(list || []), ...(values || []).filter(Boolean)])];
-}
-
-function buildDNAUpdate({ annotationId, area, aiResult, quickChoice }) {
-  const proposal = aiResult.proposal || {};
-  return {
-    annotationId: annotationId || null,
-    reason: aiResult.interpretation || `Annotazione confermata su ${area}`,
-    affected_area: area,
-    confidence: proposal.confidence || 0.72,
-    timestamp: new Date().toISOString(),
-    quick_choice: quickChoice || null,
-    materials: proposal.materials || [],
-    lighting: proposal.lighting_strategy || "",
-    atmosphere: proposal.atmosphere || "",
-  };
-}
-
-function extendRenderPrompt(currentPrompt, area, aiResult) {
-  const proposal = aiResult.proposal || {};
-  const additions = [
-    `Area ${area}`,
-    proposal.atmosphere,
-    ...(proposal.materials || []),
-    proposal.lighting_strategy,
-  ].filter(Boolean);
-  const delta = additions.join(" · ");
-  return delta && !currentPrompt.includes(delta) ? `${currentPrompt} | ${delta}` : currentPrompt;
-}
-
-/* ---------------- AI LAYER — output JSON rigoroso ---------------- */
-
-async function askProjectIntelligence({ area, quickChoice, customText }) {
-  const userPayload = {
-    area,
-    quick_choice: quickChoice || null,
-    custom_text: customText || null,
-    project: "Villa 127/C, Noicattaro",
-    clients: "Gabriele & Ludovica",
-  };
-
-  const systemPrompt = `Sei l'Architectural Design Interpreter del sistema IEL per Villa 127/C.
-Ricevi un input strutturato su un'area della pianta e un'intenzione del cliente.
-Devi rispondere SOLO con un oggetto JSON valido, nessun testo fuori dal JSON,
-nessun preambolo, nessun code fence. Schema esatto:
-{
-  "interpretation": "sintesi tecnica dell'intenzione, 1 frase",
-  "design_intent": "testo conciso, tecnico e architettura-oriented, rivolto al cliente, max 3 frasi",
-  "open_questions": ["eventuali domande aperte per l'architetto"],
-  "system_feedback": "nota interna per l'architetto, 1 frase",
-  "proposal": {
-    "design_intent": "obiettivo architettonico strutturato",
-    "materials": ["materiali coerenti"],
-    "lighting_strategy": "strategia luminosa",
-    "atmosphere": "atmosfera risultante",
-    "functional_improvements": "migliorie funzionali",
-    "risks": ["rischi"],
-    "benefits": ["benefici"],
-    "contextual_recommendations": ["raccomandazioni contestuali"],
-    "confidence": 0.0
-  },
-  "inspiration_object": {
-    "style": "linguaggio architettonico",
-    "materials": ["materiali"],
-    "colors": ["colori"],
-    "lighting": "luce",
-    "keywords": ["keyword"],
-    "image_prompt": "prompt pronto per future image generation"
-  }
-}`;
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
-    });
-    const data = await response.json();
-    const textBlock = (data.content || []).find((b) => b.type === "text");
-    const raw = (textBlock && textBlock.text) || "{}";
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
-    const fallback = buildArchitecturalInterpretation({ area, quickChoice, customText });
-    return {
-      interpretation: parsed.interpretation || fallback.interpretation,
-      design_intent: parsed.design_intent || fallback.design_intent,
-      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : fallback.open_questions,
-      system_feedback: parsed.system_feedback || fallback.system_feedback,
-      proposal: parsed.proposal || fallback.proposal,
-      inspiration_object: parsed.inspiration_object || fallback.inspiration_object,
-    };
-  } catch (err) {
-    return buildArchitecturalInterpretation({ area, quickChoice, customText });
-  }
-}
-
-/* ---------------- HERO: shader bronzo + monolite Three.js ---------------- */
-
-function HeroShaderCanvas() {
-  const canvasRef = useRef(null);
-  const mouseRef = useRef({ x: 0.5, y: 0.5 });
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const gl = canvas.getContext("webgl");
-    if (!gl) return;
-
-    const resize = () => {
-      canvas.width = canvas.clientWidth * devicePixelRatio;
-      canvas.height = canvas.clientHeight * devicePixelRatio;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    };
-    resize();
-    window.addEventListener("resize", resize);
-
-    const vertSrc = `attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }`;
-    const fragSrc = `
-      precision mediump float;
-      uniform vec2 u_resolution;
-      uniform vec2 u_mouse;
-      uniform float u_time;
-      void main() {
-        vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-        vec2 m = u_mouse;
-        float d = distance(uv, m);
-        float glow = smoothstep(0.7, 0.0, d) * 0.55;
-        float flicker = 0.04 * sin(u_time * 0.6 + uv.x * 8.0);
-        vec3 bronze = vec3(0.72, 0.53, 0.31);
-        vec3 base = vec3(0.05, 0.047, 0.039);
-        vec3 color = base + bronze * (glow + flicker * 0.3);
-        gl_FragColor = vec4(color, 1.0);
-      }`;
-
-    function compile(type, src) {
-      const s = gl.createShader(type);
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      return s;
-    }
-
-    const prog = gl.createProgram();
-    gl.attachShader(prog, compile(gl.VERTEX_SHADER, vertSrc));
-    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fragSrc));
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-      gl.STATIC_DRAW
-    );
-    const posLoc = gl.getAttribLocation(prog, "a_pos");
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-    const uRes = gl.getUniformLocation(prog, "u_resolution");
-    const uMouse = gl.getUniformLocation(prog, "u_mouse");
-    const uTime = gl.getUniformLocation(prog, "u_time");
-
-    let raf;
-    const start = performance.now();
-    const draw = () => {
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform2f(uMouse, mouseRef.current.x, 1.0 - mouseRef.current.y);
-      gl.uniform1f(uTime, (performance.now() - start) / 1000);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      raf = requestAnimationFrame(draw);
-    };
-    draw();
-
-    const onMove = (e) => {
-      mouseRef.current = { x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight };
-    };
-    window.addEventListener("pointermove", onMove);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("pointermove", onMove);
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} className="hero__shader-canvas" />;
-}
-
-function HeroMonolith() {
-  const mountRef = useRef(null);
-
-  useEffect(() => {
-    let renderer, scene, camera, mesh, raf;
-    let disposed = false;
-
-    function ensureThree(cb) {
-      if (window.THREE) return cb();
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-      script.onload = cb;
-      document.body.appendChild(script);
-    }
-
-    ensureThree(() => {
-      if (disposed) return;
-      const THREE = window.THREE;
-      const mount = mountRef.current;
-      if (!mount) return;
-
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 100);
-      camera.position.z = 6;
-
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-      mount.appendChild(renderer.domElement);
-
-      const geo = new THREE.IcosahedronGeometry(1.6, 0);
-      const wire = new THREE.WireframeGeometry(geo);
-      mesh = new THREE.LineSegments(wire, new THREE.LineBasicMaterial({ color: 0xd9a866 }));
-      scene.add(mesh);
-
-      const onResize = () => {
-        if (!mount) return;
-        camera.aspect = mount.clientWidth / mount.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(mount.clientWidth, mount.clientHeight);
-      };
-      window.addEventListener("resize", onResize);
-
-      const animate = () => {
-        if (disposed) return;
-        mesh.rotation.y += 0.0025;
-        mesh.rotation.x += 0.0012;
-        renderer.render(scene, camera);
-        raf = requestAnimationFrame(animate);
-      };
-      animate();
-
-      mountRef.current._cleanup = () => {
-        window.removeEventListener("resize", onResize);
-        cancelAnimationFrame(raf);
-        renderer.dispose();
-      };
-    });
-
-    return () => {
-      disposed = true;
-      if (mountRef.current && mountRef.current._cleanup) mountRef.current._cleanup();
-    };
-  }, []);
-
-  return <div ref={mountRef} className="hero__monolith-canvas" />;
-}
-
-/* ---------------- TOP NAV + BOTTOM NAV ---------------- */
-
-function TopNav({ active, onNavigate, authSession, onOpenLogin, onLogout }) {
-  const items = [
-    { id: "progetto", label: "Progetto" },
-    { id: "edita", label: "Edita" },
-    { id: "intelligence", label: "Intelligence" },
-    { id: "dna", label: "DNA" },
-  ];
+// ── DREAM PINS ──────────────────────────────────────────────────────────────
+function DreamPins({ sceneId, pins, onPin }) {
+  const scenePins = pins[sceneId] || {};
   return (
-    <nav className="top-nav">
-      <span className="top-nav__brand">IEL ARCHITECT</span>
-      <div className="top-nav__links">
-        {items.map((it) => (
+    <div className="pins-bar">
+      <span className="pins-label">Come vi sentite?</span>
+      <div className="pins-row">
+        {PINS.map(p => (
           <button
-            key={it.id}
-            className={"top-nav__link" + (active === it.id ? " is-active" : "")}
-            onClick={() => onNavigate(it.id)}
+            key={p.emoji}
+            className={`pin-btn ${scenePins[p.emoji] ? 'active' : ''}`}
+            onClick={() => onPin(sceneId, p.emoji)}
+            title={p.label}
           >
-            {it.label}
+            <span className="pin-emoji">{p.emoji}</span>
+            {scenePins[p.emoji] > 0 && (
+              <span className="pin-count">{scenePins[p.emoji]}</span>
+            )}
           </button>
         ))}
       </div>
-      <div className="top-nav__session-wrap">
-        {authSession ? (
-          <>
-            <span className="top-nav__session">{authSession.email}</span>
-            <button className="top-nav__session-btn" onClick={onLogout}>Esci</button>
-          </>
-        ) : (
-          <button className="top-nav__session-btn" onClick={onOpenLogin}>Accedi</button>
-        )}
-      </div>
-    </nav>
-  );
-}
-
-function BottomNav({ onNavigate }) {
-  return (
-    <div className="bottom-nav">
-      <button className="bottom-nav__btn" onClick={() => onNavigate("progetto")} aria-label="Home">
-        🏠
-      </button>
-      <button className="bottom-nav__btn" onClick={() => onNavigate("edita")} aria-label="Edita">
-        ✎
-      </button>
-      <button className="bottom-nav__btn" onClick={() => onNavigate("dna")} aria-label="DNA">
-        🧬
-      </button>
     </div>
   );
 }
 
-function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onEmailAccess, onAdminAccess, onRegister, onProviderClick, onClose }) {
-  if (!open) return null;
-
+// ── WELCOME SCREEN ──────────────────────────────────────────────────────────
+function WelcomeScreen({ onStart }) {
   return (
-    <div className="login-overlay" onClick={onClose}>
-      <div className="login-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="login-panel__eyebrow">Ingresso protetto</div>
-        <h2 className="login-panel__title">{mode === "login" ? "Accedi al progetto" : "Registrati al progetto"}</h2>
-        <p className="login-panel__body">
-          La Hero resta pubblica. Le interazioni che modificano Project DNA, annotazioni e decisioni richiedono accesso.
+    <div className="welcome-screen">
+      <div className="welcome-content">
+        <div className="welcome-iel">IEL</div>
+        <div className="welcome-sub">for Architecture</div>
+        <div className="welcome-divider" />
+        <h1 className="welcome-title">Benvenuti,<br />{CLIENT_NAME}.</h1>
+        <p className="welcome-body">
+          Questa è la vostra futura casa.<br />
+          Oggi esplorerete le decisioni progettuali<br />
+          che cambieranno il modo in cui vivrete questo spazio.
         </p>
-
-        <div className="login-panel__switch">
-          <button
-            type="button"
-            className={"login-panel__switch-btn" + (mode === "login" ? " is-active" : "")}
-            onClick={() => onModeChange("login")}
-          >
-            Accedi
-          </button>
-          <button
-            type="button"
-            className={"login-panel__switch-btn" + (mode === "register" ? " is-active" : "")}
-            onClick={() => onModeChange("register")}
-          >
-            Registrati
-          </button>
-        </div>
-
-        <div className="login-panel__providers">
-          {[
-            ["google", "Google"],
-            ["apple", "Apple"],
-            ["microsoft", "Microsoft"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className="login-provider-btn"
-              onClick={() => onProviderClick(label)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="login-panel__divider">oppure</div>
-
-        <div className="login-panel__form">
-          <input
-            className="login-input"
-            type="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={(e) => onChange("email", e.target.value)}
-          />
-          <input
-            className="login-input"
-            type="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={(e) => onChange("password", e.target.value)}
-          />
-          <button type="button" className="login-submit-btn" onClick={onEmailAccess}>
-            {mode === "login" ? "Accedi con email" : "Accedi con email"}
-          </button>
-          {mode === "login" && (
-            <button type="button" className="login-submit-btn login-submit-btn--secondary" onClick={onAdminAccess}>
-              Entra come admin
-            </button>
-          )}
-          {mode === "register" && (
-            <button type="button" className="login-submit-btn login-submit-btn--secondary" onClick={onRegister}>
-              Registrati
-            </button>
-          )}
-        </div>
-
-        <div className="login-panel__note">
-          Stato attuale: accesso locale prototipo via email. Admin abilitato: {ADMIN_EMAIL}. Google / Apple / Microsoft verranno attivati con Firebase su Vercel.
-        </div>
-
-        {authError && <div className="login-panel__error">{authError}</div>}
-
-        <button type="button" className="login-panel__close" onClick={onClose}>
-          Chiudi
+        <p className="welcome-project">{PROJECT_NAME}</p>
+        <button className="welcome-btn" onClick={onStart}>
+          Inizia il percorso →
         </button>
       </div>
+      <div className="welcome-bg-glow" />
     </div>
   );
 }
 
-/* ---------------- DRAW LAYER (azione "Edita") ---------------- */
+// ── DECISION SUMMARY ────────────────────────────────────────────────────────
+function DecisionSummary({ pins, comments, onRestart }) {
+  const allPins = SCENES.flatMap(s => {
+    const sp = pins[s.id] || {};
+    return Object.entries(sp).flatMap(([emoji, count]) =>
+      count > 0 ? [{ scene: s.title, emoji, count }] : []
+    );
+  });
 
-function DrawLayer({ hotspots, isDrawing, enabled, onDrawingChange, onMark, containerRef }) {
-  const canvasRef = useRef(null);
-  const drawing = useRef(false);
-  const points = useRef([]);
+  const liked  = allPins.filter(p => p.emoji === '❤️');
+  const ideas  = allPins.filter(p => p.emoji === '💡');
+  const doubts = allPins.filter(p => p.emoji === '🤔');
 
-  const resizeCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
-  }, [containerRef]);
-
-  useEffect(() => {
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-    return () => window.removeEventListener("resize", resizeCanvas);
-  }, [resizeCanvas]);
-
-  const getPos = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  };
-
-  const findArea = (fx, fy) => {
-    for (const [name, box] of Object.entries(hotspots || {})) {
-      if (fx >= box.xMin && fx <= box.xMax && fy >= box.yMin && fy <= box.yMax) return name;
-    }
-    return "area generica";
-  };
-
-  const onPointerDown = (e) => {
-    if (!enabled) return;
-    e.preventDefault();
-    drawing.current = true;
-    points.current = [getPos(e)];
-    onDrawingChange(true);
-    canvasRef.current.setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e) => {
-    if (!drawing.current) return;
-    const pos = getPos(e);
-    points.current.push(pos);
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "#e2b876";
-    ctx.shadowColor = "#e2b876";
-    ctx.shadowBlur = 10;
-    ctx.lineWidth = 3;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    points.current.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.stroke();
-  };
-
-  const onPointerUp = (e) => {
-    if (!drawing.current) return;
-    drawing.current = false;
-    const canvas = canvasRef.current;
-    const pts = points.current;
-    if (pts.length > 0) {
-      const avgX = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-      const avgY = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-      const fx = avgX / canvas.width;
-      const fy = avgY / canvas.height;
-      const area = findArea(fx, fy);
-      onMark(area, { x: avgX, y: avgY });
-    }
-    setTimeout(() => {
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      onDrawingChange(false);
-    }, 900);
-  };
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className={"draw-canvas" + (isDrawing ? " is-flashing" : "") + (enabled ? " is-enabled" : "")}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    />
+  const allComments = SCENES.flatMap(s =>
+    (comments[s.id] || []).map(c => ({ scene: s.title, text: c }))
   );
-}
 
-/* ---------------- REACTION BAR ---------------- */
-
-function ReactionBar({ decisionId, reaction, onReact }) {
-  const emojis = ["😍", "🤔", "❌"];
-  return (
-    <div className="reaction-bar">
-      {emojis.map((e) => (
-        <button
-          key={e}
-          className={"reaction-btn" + (reaction === e ? " is-active" : "")}
-          onClick={(evt) => onReact(decisionId, e, evt)}
-        >
-          {e}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
-
-function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
-  if (!popup || !popup.open) return null;
-  const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
-
-  const style = {
-    left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
-    top: placeAbove ? anchor.y - 12 : anchor.y + 24,
-    transform: placeAbove ? "translateY(-100%)" : "none",
-  };
+  const hasAnything = allPins.length > 0 || allComments.length > 0;
 
   return (
-    <div className="pi-anchor" style={style}>
-      <div className={"pi-arrow " + (placeAbove ? "pi-arrow--above" : "pi-arrow--below")} />
-      <div className="pi-card">
-        <div className="pi-card__eyebrow">Project Intelligence</div>
+    <div className="summary-screen">
+      <div className="summary-header">
+        <span className="iel-wordmark">IEL</span>
+        <span className="iel-sub">for Architecture</span>
+      </div>
+      <div className="summary-content">
+        <h2 className="summary-title">Il vostro percorso</h2>
+        <p className="summary-sub">{PROJECT_NAME}</p>
 
-        {step === "intent" && (
-          <>
-            <div className="pi-card__prompt">
-              Ho notato che hai segnato <b>{area}</b>. Cosa vorresti migliorare?
-            </div>
-            <div className="pi-choices">
-              {QUICK_CHOICES.map((c) => (
-                <button key={c} className="pi-choice-btn" onClick={() => onQuickChoice(c)}>
-                  {c}
-                </button>
-              ))}
-            </div>
-            {quickChoice === "Altro…" && (
-              <textarea
-                className="pi-custom-input"
-                placeholder="Scrivi cosa vorresti cambiare…"
-                value={customText}
-                onChange={(e) => onCustomChange(e.target.value)}
-                autoFocus
-              />
-            )}
-            {quickChoice === "Altro…" && customText.trim() && (
-              <button className="pi-btn pi-btn--primary" style={{ marginTop: 10, width: "100%" }} onClick={onConfirm}>
-                Invia
-              </button>
-            )}
-          </>
+        {!hasAnything && (
+          <p className="summary-empty">
+            Esplorate il progetto e lasciate le vostre reazioni — qui troverete il riepilogo.
+          </p>
         )}
 
-        {step === "thinking" && (
-          <div className="pi-thinking">
-            <div className="pi-thinking__label">Project Intelligence sta elaborando…</div>
-            <div className="pi-thinking__bar">
-              <div className="pi-thinking__bar-fill" />
-            </div>
+        {liked.length > 0 && (
+          <div className="summary-group">
+            <div className="summary-group-label">❤️ Avete apprezzato</div>
+            {liked.map((p, i) => (
+              <div key={i} className="summary-item">{p.scene}</div>
+            ))}
           </div>
         )}
 
-        {step === "confirm" && aiResult && (
-          <>
-            <div className="pi-confirm__intent">{aiResult.design_intent}</div>
-            {aiResult.proposal && (
-              <div className="pi-proposal-grid">
-                <div><b>Materiali</b><span>{(aiResult.proposal.materials || []).join(", ") || "—"}</span></div>
-                <div><b>Luce</b><span>{aiResult.proposal.lighting_strategy || "—"}</span></div>
-                <div><b>Atmosfera</b><span>{aiResult.proposal.atmosphere || "—"}</span></div>
-                <div><b>Funzione</b><span>{aiResult.proposal.functional_improvements || "—"}</span></div>
-                <div><b>Benefici</b><span>{(aiResult.proposal.benefits || []).join(" · ") || "—"}</span></div>
-                <div><b>Rischi</b><span>{(aiResult.proposal.risks || []).join(" · ") || "—"}</span></div>
+        {doubts.length > 0 && (
+          <div className="summary-group">
+            <div className="summary-group-label">🤔 Avete dubbi su</div>
+            {doubts.map((p, i) => (
+              <div key={i} className="summary-item">{p.scene}</div>
+            ))}
+          </div>
+        )}
+
+        {ideas.length > 0 && (
+          <div className="summary-group">
+            <div className="summary-group-label">💡 Le vostre idee</div>
+            {ideas.map((p, i) => (
+              <div key={i} className="summary-item">{p.scene}</div>
+            ))}
+          </div>
+        )}
+
+        {allComments.length > 0 && (
+          <div className="summary-group">
+            <div className="summary-group-label">💬 Le vostre note</div>
+            {allComments.map((c, i) => (
+              <div key={i} className="summary-item">
+                <span className="summary-item-scene">{c.scene} —</span> {c.text}
               </div>
-            )}
-            {aiResult.inspiration_object && (
-              <div className="pi-inspiration-box">
-                <div className="pi-inspiration-box__title">Inspiration Object</div>
-                <div><b>Style</b> {aiResult.inspiration_object.style}</div>
-                <div><b>Keywords</b> {(aiResult.inspiration_object.keywords || []).join(", ")}</div>
-                <div><b>Prompt</b> {aiResult.inspiration_object.image_prompt}</div>
-              </div>
-            )}
-            {aiResult.open_questions && aiResult.open_questions.length > 0 && (
-              <div className="pi-confirm__questions">
-                {aiResult.open_questions.map((q, i) => (
-                  <div key={i}>· {q}</div>
+            ))}
+          </div>
+        )}
+
+        <button className="summary-send-btn">
+          📩 Invia il feedback all'architetto
+        </button>
+        <button className="summary-restart" onClick={onRestart}>
+          ← Torna al progetto
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ────────────────────────────────────────────────────────────────
+export default function App() {
+  const [phase, setPhase] = useState('welcome');
+  const [activeScene, setActiveScene] = useState(0);
+  const [activeMood, setActiveMood] = useState(MOODS[0]);
+  const [pins, setPins] = useState({});
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+  const [comment, setComment] = useState('');
+  const [comments, setComments] = useState({});
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  const scene = SCENES[activeScene];
+
+  useEffect(() => {
+    setImageLoaded(false);
+    setReplayOpen(false);
+    setCommentOpen(false);
+  }, [activeScene]);
+
+  const handlePin = (sceneId, emoji) => {
+    setPins(prev => ({
+      ...prev,
+      [sceneId]: {
+        ...prev[sceneId],
+        [emoji]: ((prev[sceneId] || {})[emoji] || 0) + 1,
+      }
+    }));
+  };
+
+  const handleComment = () => {
+    if (!comment.trim()) return;
+    const text = comment.trim();
+    setComments(prev => ({
+      ...prev,
+      [scene.id]: [...(prev[scene.id] || []), text]
+    }));
+    setComment('');
+
+    // Invio silenzioso all'architetto — invisibile al cliente.
+    // Se fallisce (rete, funzione non ancora attiva) non blocca l'esperienza cliente.
+    getDesignSuggestions(text, scene).then(({ reasoning, proposals }) => {
+      const lycheePrompt = buildLycheePrompt(scene, text, proposals);
+      fetch('/api/send-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sceneTitle: scene.title,
+          sceneSubtitle: scene.subtitle,
+          annotationText: text,
+          reasoning,
+          proposals,
+          lycheePrompt,
+        }),
+      }).catch(() => {});
+    }).catch(() => {});
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Villa 127/C — IEL for Architecture',
+          text: 'Esplora il progetto in modo interattivo',
+          url: SHARE_URL,
+        });
+        setShared(true);
+        setTimeout(() => setShared(false), 2000);
+      } catch { setShowQR(true); }
+    } else {
+      setShowQR(v => !v);
+    }
+  };
+
+  const sceneComments = comments[scene.id] || [];
+  const isLastScene = activeScene === SCENES.length - 1;
+
+  if (phase === 'welcome') return <WelcomeScreen onStart={() => setPhase('explore')} />;
+  if (phase === 'summary') return (
+    <DecisionSummary
+      pins={pins}
+      comments={comments}
+      onRestart={() => { setPhase('explore'); setActiveScene(0); }}
+    />
+  );
+
+  return (
+    <div className="app">
+      <header className="header">
+        <div className="header-left">
+          <span className="iel-wordmark">IEL</span>
+          <span className="iel-sub">for Architecture</span>
+        </div>
+        <div className="header-right-row">
+          <button className="summary-btn" onClick={() => setPhase('summary')}>Riepilogo</button>
+          <button className={`share-btn-sm ${shared ? 'shared' : ''}`} onClick={handleShare}>
+            {shared ? '✓' : '↑'}
+          </button>
+        </div>
+      </header>
+
+      <nav className="scene-nav">
+        {SCENES.map((s, i) => (
+          <button
+            key={s.id}
+            className={`nav-dot ${i === activeScene ? 'active' : ''}`}
+            onClick={() => setActiveScene(i)}
+          >
+            <span className="nav-label">{s.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="scene-wrap">
+        {scene.images ? (
+          <CompareSlider images={scene.images} />
+        ) : (
+          <div className="scene-img-wrap">
+            <img
+              key={scene.image}
+              src={scene.image}
+              alt={scene.title}
+              className={`scene-img ${imageLoaded ? 'loaded' : ''}`}
+              style={scene.mood ? { filter: activeMood.filter } : {}}
+              onLoad={() => setImageLoaded(true)}
+            />
+            {!imageLoaded && <div className="img-skeleton" />}
+          </div>
+        )}
+
+        {scene.mood && (
+          <div className="mood-bar">
+            {MOODS.map(m => (
+              <button
+                key={m.id}
+                className={`mood-btn ${activeMood.id === m.id ? 'active' : ''}`}
+                onClick={() => setActiveMood(m)}
+              >{m.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="scene-info">
+        <div className="scene-text">
+          <p className="scene-subtitle">{scene.subtitle}</p>
+          <h2 className="scene-title">{scene.title}</h2>
+          <p className="scene-body">{scene.body}</p>
+        </div>
+
+        <div className="action-row">
+          {scene.replay && (
+            <button className="action-btn" onClick={() => setReplayOpen(v => !v)}>
+              🧠 Perché questa scelta
+            </button>
+          )}
+          <button className="action-btn" onClick={() => setCommentOpen(v => !v)}>
+            💬 Commenta
+          </button>
+          {isLastScene && (
+            <button className="action-btn action-btn-gold" onClick={() => setPhase('summary')}>
+              ✓ Vedi riepilogo
+            </button>
+          )}
+        </div>
+
+        {replayOpen && scene.replay && (
+          <div className="replay-panel">
+            <p className="replay-title">Decision Replay</p>
+            <p className="replay-text">{scene.replay}</p>
+          </div>
+        )}
+
+        {commentOpen && (
+          <div className="comment-panel">
+            <div className="comment-input-row">
+              <input
+                className="comment-input"
+                placeholder="Lasciate una nota su questa scena..."
+                value={comment}
+                onChange={e => setComment(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleComment()}
+              />
+              <button className="comment-send" onClick={handleComment}>→</button>
+            </div>
+            {sceneComments.length > 0 && (
+              <div className="comment-list">
+                {sceneComments.map((c, i) => (
+                  <div key={i} className="comment-item">💬 {c}</div>
                 ))}
               </div>
             )}
-            <textarea
-              className="pi-confirm__edit"
-              value={aiResult.design_intent}
-              onChange={(e) => onEdit(e.target.value)}
-            />
-            <div className="pi-confirm__actions">
-              {popup.annotationId && (
-                <button className="pi-btn pi-btn--danger" onClick={onRemove}>
-                  Rimuovi segno
-                </button>
-              )}
-              <button className="pi-btn" onClick={onClose}>
-                ✏ Modifica
-              </button>
-              <button className="pi-btn pi-btn--primary" onClick={onConfirm}>
-                ✓ Conferma
-              </button>
-            </div>
-          </>
-        )}
-
-        {step === "saved" && (
-          <div className="pi-saved">
-            <span className="pi-saved__check">✓</span>
-            Aggiunto al Project DNA
           </div>
         )}
+
+        <DreamPins sceneId={scene.id} pins={pins} onPin={handlePin} />
       </div>
-    </div>
-  );
-}
 
-/* ---------------- DESKTOP COMPARE CARD (con parallax reale su scroll) ---------------- */
-
-function useScrollParallax(ref) {
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    const onScroll = () => {
-      const el = ref.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const vh = window.innerHeight;
-      const raw = 1 - Math.min(1, Math.max(0, rect.top / vh));
-      setProgress(raw);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [ref]);
-  return progress;
-}
-
-function DesktopCompareCard({ decision, option, optionKey, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onOpenAnnotation, annotations, onChoose, dnaMateriali, onZoom }) {
-  const cardRef = useRef(null);
-  const frameRef = useRef(null);
-  const progress = useScrollParallax(cardRef);
-  const scale = 1.22 - 0.22 * progress;
-  const translate = 54 * (1 - progress);
-  const rotate = (1 - progress) * 1.2;
-
-  const materialActive = dnaMateriali.includes(option.materiale);
-
-  return (
-    <div
-      ref={cardRef}
-      className={"compare-card" + (chosen ? " is-selected" : "")}
-      style={{ transform: `scale(${scale}) translateY(${translate}px) rotateZ(${rotate}deg)` }}
-    >
-      <div className="draw-layer-wrap compare-card__frame" ref={frameRef}>
-        <img src={option.image} alt={option.label} className="compare-card__image" />
-        <AnnotationMarks
-          annotations={annotations}
-          onOpen={(annotation) => onOpenAnnotation(annotation, frameRef)}
-        />
-        <DrawLayer
-          hotspots={decision.hotspots}
-          isDrawing={isDrawing}
-          enabled={editEnabled}
-          onDrawingChange={onDraw.setDrawing}
-          onMark={(area, anchor) => onDraw.onMark(decision.id, optionKey, area, anchor, frameRef)}
-          containerRef={frameRef}
-        />
-        <button
-          className={"edita-toggle-btn" + (editEnabled ? " is-active" : "")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleEdit(decision.id);
-          }}
-          type="button"
-        >
-          {editEnabled ? "Edita attivo" : "Attiva Edita"}
-        </button>
-        <button
-          className="zoom-btn"
-          onClick={(e) => { e.stopPropagation(); onZoom(option.image, option.label); }}
-          aria-label="Ingrandisci"
-        >
-          ⤢
-        </button>
-        <span className="edita-hint">{editEnabled ? "Edita attivo — disegna per lasciare un segno" : "Attiva Edita per iniziare a disegnare"}</span>
-      </div>
-      <div className="compare-card__body">
-        <div className="compare-card__label">{option.label}</div>
-        <div className="compare-card__desc">{option.desc}</div>
-        {option.materiale && (
-          <div className="material-row">
-            <span className={"material-chip" + (materialActive ? " is-active" : "")}>
-              {option.materiale}
-            </span>
+      {showQR && (
+        <div className="qr-overlay" onClick={() => setShowQR(false)}>
+          <div className="qr-panel" onClick={e => e.stopPropagation()}>
+            <p className="qr-label">Scansionate per aprire</p>
+            <QRCodeSVG value={SHARE_URL} size={180} bgColor="#ffffff" fgColor="#0a0a0a" level="M" />
+            <p className="qr-url">{SHARE_URL}</p>
+            <button className="qr-close" onClick={() => setShowQR(false)}>Chiudi</button>
           </div>
-        )}
-        <button
-          className={"compare-card__choose" + (chosen ? " is-chosen" : "")}
-          onClick={() => onChoose(decision.id, optionKey, option)}
-        >
-          {chosen ? "✓ Scelto" : `Scegli ${option.label}`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- MOBILE COMPARE SLIDER ---------------- */
-
-function MobileCompareCard({ decision, chosen, isDrawing, editEnabled, onToggleEdit, onDraw, onOpenAnnotation, annotations, onChoose, onZoom }) {
-  const [pos, setPos] = useState(50);
-  const wrapRef = useRef(null);
-  const dragging = useRef(false);
-
-  const setFromClientX = (clientX) => {
-    const rect = wrapRef.current.getBoundingClientRect();
-    const pct = ((clientX - rect.left) / rect.width) * 100;
-    setPos(Math.max(0, Math.min(100, pct)));
-  };
-
-  const onHandleDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragging.current = true;
-    e.target.setPointerCapture(e.pointerId);
-  };
-  const onHandleMove = (e) => {
-    if (!dragging.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setFromClientX(e.clientX);
-  };
-   const onHandleUp = (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    dragging.current = false;
-  };
-
-  const dominant = pos > 50 ? decision.optionA : decision.optionB;
-
-  return (
-    <div>
-      <div
-        className="draw-layer-wrap mobile-slider"
-        ref={wrapRef}
-        style={{ "--slider-pos": `${pos}%` }}
-      >
-        <img src={decision.optionB.image} alt={decision.optionB.label} className="mobile-slider__img" />
-        <img
-          src={decision.optionA.image}
-          alt={decision.optionA.label}
-          className="mobile-slider__img mobile-slider__img--top"
-        />
-        <AnnotationMarks
-          annotations={annotations}
-          onOpen={(annotation) => onOpenAnnotation(annotation, wrapRef)}
-        />
-        {chosen && (
-          <DrawLayer
-            hotspots={decision.hotspots}
-            isDrawing={isDrawing}
-            enabled={editEnabled}
-            onDrawingChange={onDraw.setDrawing}
-            onMark={(area, anchor) => onDraw.onMark(decision.id, chosen, area, anchor, wrapRef)}
-            containerRef={wrapRef}
-          />
-        )}
-        {chosen && (
-          <button
-            className={"edita-toggle-btn edita-toggle-btn--mobile" + (editEnabled ? " is-active" : "")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleEdit(decision.id);
-            }}
-            type="button"
-          >
-            {editEnabled ? "Edita attivo" : "Attiva Edita"}
-          </button>
-        )}
-        <button
-          className="zoom-btn"
-          onClick={(e) => { e.stopPropagation(); onZoom(dominant.image, dominant.label); }}
-          aria-label="Ingrandisci"
-        >
-          ⤢
-        </button>
-        <div className="mobile-slider__divider" />
-        <div
-          className="mobile-slider__handle"
-          onPointerDown={onHandleDown}
-          onPointerMove={onHandleMove}
-          onPointerUp={onHandleUp}
-        >
-          ⇔
         </div>
-      </div>
-      <div className="mobile-slider__desc">{dominant.desc}</div>
-      <div className="mobile-choose-row">
-        <button
-          className={"compare-card__choose" + (chosen === "optionA" ? " is-chosen" : "")}
-          onClick={() => onChoose(decision.id, "optionA", decision.optionA)}
-        >
-          Scegli Versione I
-        </button>
-        <button
-          className={"compare-card__choose" + (chosen === "optionB" ? " is-chosen" : "")}
-          onClick={() => onChoose(decision.id, "optionB", decision.optionB)}
-        >
-          Scegli Versione II
-        </button>
-      </div>
-      <div className="edita-mobile-status">
-        {!chosen
-          ? "Scegli una versione per sbloccare Edita"
-          : editEnabled
-          ? "✎ Edita attivo — ora puoi disegnare col dito senza interferire con lo slider"
-          : "Tocca “Attiva Edita” per iniziare a disegnare"}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- ZOOM VIEWER — pinch / rotellina / doppio-tap / trascina ---------------- */
-
-function ZoomViewer({ src, alt, onClose }) {
-  const [scale, setScale] = useState(1);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const pointers = useRef(new Map());
-  const pinchStart = useRef(null); // { dist, scale }
-  const dragStart = useRef(null); // { x, y, posX, posY }
-
-  const clampScale = (s) => Math.max(1, Math.min(4, s));
-
-  const onPointerDown = (e) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      pinchStart.current = { dist, scale };
-      dragStart.current = null;
-    } else if (pointers.current.size === 1 && scale > 1) {
-      dragStart.current = { x: e.clientX, y: e.clientY, posX: pos.x, posY: pos.y };
-    }
-  };
-
-  const onPointerMove = (e) => {
-    if (!pointers.current.has(e.pointerId)) return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if (pointers.current.size === 2 && pinchStart.current) {
-      const [a, b] = [...pointers.current.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      const next = clampScale(pinchStart.current.scale * (dist / pinchStart.current.dist));
-      setScale(next);
-    } else if (pointers.current.size === 1 && dragStart.current) {
-      const dx = e.clientX - dragStart.current.x;
-      const dy = e.clientY - dragStart.current.y;
-      setPos({ x: dragStart.current.posX + dx, y: dragStart.current.posY + dy });
-    }
-  };
-
-  const endPointer = (e) => {
-    pointers.current.delete(e.pointerId);
-    if (pointers.current.size < 2) pinchStart.current = null;
-    if (pointers.current.size === 0) dragStart.current = null;
-  };
-
-  const onWheel = (e) => {
-    e.preventDefault();
-    setScale((s) => clampScale(s - e.deltaY * 0.0015));
-  };
-
-  const onDoubleClick = () => {
-    setScale((s) => (s > 1 ? 1 : 2.5));
-    setPos({ x: 0, y: 0 });
-  };
-
-  return (
-    <div className="zoom-overlay" onClick={onClose}>
-      <button className="zoom-overlay__close" onClick={onClose} aria-label="Chiudi">✕</button>
-      <div className="zoom-overlay__hint">Pizzica o usa la rotellina per ingrandire · doppio tocco per reset</div>
-      <img
-        src={src}
-        alt={alt}
-        className="zoom-overlay__img"
-        style={{ transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})` }}
-        onClick={(e) => e.stopPropagation()}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endPointer}
-        onPointerCancel={endPointer}
-        onWheel={onWheel}
-        onDoubleClick={onDoubleClick}
-        draggable={false}
-      />
-    </div>
-  );
-}
-
-/* ---------------- VISTA D'INSIEME & PALETTE MATERIALI ---------------- */
-
-const BUILDING_OVERVIEW = [
-  { id: "edificio1", image: "/edificio1.png", label: "Vista d'insieme e palette materiali" },
-  { id: "edificio2", image: "/edificio2.png", label: "Sezione assonometrica dell'edificio" },
-];
-
-function BuildingOverviewSection({ onZoom }) {
-  return (
-    <section className="decision-section">
-      <div className="decision-section__eyebrow">Riferimento</div>
-      <h2 className="decision-section__title">Vista d'insieme &amp; Palette Materiali</h2>
-      <p className="decision-section__hint">Tocca un'immagine per ingrandirla e leggere i dettagli materici.</p>
-      <div className="overview-grid">
-        {BUILDING_OVERVIEW.map((item) => (
-          <button
-            key={item.id}
-            className="overview-thumb"
-            onClick={() => onZoom(item.image, item.label)}
-          >
-            <img src={item.image} alt={item.label} className="overview-thumb__img" />
-            <span className="overview-thumb__label">⤢ {item.label}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/* ---------------- PLACEHOLDER CARD ---------------- */
-
-function PlaceholderCard({ item, onZoom }) {
-  const [imgSrc, setImgSrc] = useState(item.image);
-
-  return (
-    <button
-      className="placeholder-card"
-      type="button"
-      onClick={() => imgSrc && onZoom(imgSrc, item.label)}
-    >
-      {imgSrc ? (
-        <img
-          src={imgSrc}
-          alt={item.label}
-          className="placeholder-card__img"
-          onError={() => {
-            if (item.fallbackImage && imgSrc !== item.fallbackImage) setImgSrc(item.fallbackImage);
-            else setImgSrc("");
-          }}
-        />
-      ) : (
-        <div className="placeholder-card__icon">{item.icon}</div>
       )}
-      <div className="placeholder-card__overlay">
-        <div className="placeholder-card__label">{item.label}</div>
-        <div className="placeholder-card__sub">⤢ Tocca per ingrandire</div>
-      </div>
-    </button>
-  );
-}
-
-/* ---------------- SIDE PANEL: DNA VIEW ---------------- */
-
-function DNAViewPanel({ dna, onClose }) {
-  const categories = [
-    ["stile", "Stile"],
-    ["materiali", "Materiali"],
-    ["luce", "Luce"],
-    ["privacy", "Privacy"],
-    ["outdoor", "Outdoor"],
-    ["funzioni_richieste", "Funzioni richieste"],
-    ["elementi_rifiutati", "Elementi rifiutati"],
-  ];
-  return (
-    <div className="side-panel-overlay" onClick={onClose}>
-      <div className="side-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="side-panel__header">
-          <div className="side-panel__title">Project DNA</div>
-          <button className="side-panel__close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        {categories.map(([key, label]) => (
-          <div className="dna-category" key={key}>
-            <div className="dna-category__label">{label}</div>
-            <div className="dna-category__items">
-              {dna[key] && dna[key].length > 0 ? (
-                dna[key].map((v, i) => (
-                  <span className="dna-tag" key={i}>
-                    {v}
-                  </span>
-                ))
-              ) : (
-                <span className="dna-empty">Nessun dato ancora</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- SIDE PANEL: INTELLIGENCE SUMMARY (intenzioni validate) ---------------- */
-
-function IntelligenceSummaryPanel({ dna, onClose }) {
-  return (
-    <div className="side-panel-overlay" onClick={onClose}>
-      <div className="side-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="side-panel__header">
-          <div className="side-panel__title">Project Intelligence</div>
-          <button className="side-panel__close" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <div className="dna-category__label" style={{ marginBottom: 14 }}>
-          Intenzioni validate dal cliente
-        </div>
-        {dna.intenzioni_validate.length === 0 && (
-          <div className="dna-empty">Nessuna intenzione validata ancora. Disegna sopra un piano per iniziare.</div>
-        )}
-        {dna.intenzioni_validate.map((rec, i) => (
-          <div className="intent-record" key={i}>
-            <div className="intent-record__area">
-              {rec.area} — {rec.intent_label}
-            </div>
-            <div>{rec.design_intent}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   APP
-   ================================================================ */
-
-export default function App() {
-  const [authSession, setAuthSession] = useState(loadAuthSession);
-  const [showLogin, setShowLogin] = useState(false);
-  const [authMode, setAuthMode] = useState("login");
-  const [authError, setAuthError] = useState("");
-  const [authForm, setAuthForm] = useState({ email: "", password: "" });
-  const [authUsers, setAuthUsers] = useState(loadAuthUsers);
-  const [dna, setDna] = useState(loadDNA);
-  const [annotations, setAnnotations] = useState(loadAnnotations);
-  const [choices, setChoices] = useState({});
-  const [reactions, setReactions] = useState({});
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [activeEditDecision, setActiveEditDecision] = useState(null);
-  const [navActive, setNavActive] = useState("progetto");
-  const [showDNA, setShowDNA] = useState(false);
-  const [showIntelligenceSummary, setShowIntelligenceSummary] = useState(false);
-  const [lycheePrompt, setLycheePrompt] = useState(() => loadDNA().render_prompt_current || BASE_RENDER_PROMPT);
-  const [scrollProgress, setScrollProgress] = useState(0);
-
-  const [popup, setPopup] = useState({ open: false });
-  const [zoom, setZoom] = useState(null); // { src, alt } | null
-
-  const decisionsRef = useRef(null);
-
-  useEffect(() => {
-    localStorage.setItem(DNA_STORAGE_KEY, JSON.stringify(dna));
-  }, [dna]);
-
-  useEffect(() => {
-    if (authSession) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authSession));
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
-  }, [authSession]);
-
-  useEffect(() => {
-    localStorage.setItem(AUTH_USERS_STORAGE_KEY, JSON.stringify(authUsers));
-  }, [authUsers]);
-
-  useEffect(() => {
-    localStorage.setItem(ANNOTATIONS_STORAGE_KEY, JSON.stringify(annotations));
-  }, [annotations]);
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 900);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    const onScroll = () => {
-      const h = document.documentElement;
-      const pct = h.scrollTop / (h.scrollHeight - h.clientHeight || 1);
-      setScrollProgress(Math.min(1, Math.max(0, pct)));
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  const handleNavigate = (id) => {
-    if (!authSession && id !== "progetto") {
-      setShowLogin(true);
-      setAuthError("Accedi per modificare il progetto, usare Edita o aprire i pannelli riservati.");
-      return;
-    }
-    setNavActive(id);
-    if (id === "progetto") {
-      decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-    } else if (id === "edita") {
-      decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-    } else if (id === "intelligence") {
-      setShowIntelligenceSummary(true);
-    } else if (id === "dna") {
-      setShowDNA(true);
-    }
-  };
-
-  const requireAccess = (message) => {
-    if (authSession) return true;
-    setShowLogin(true);
-    setAuthError(message);
-    return false;
-  };
-
-  const handleAuthFieldChange = (key, value) => {
-    setAuthForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleEmailAccess = () => {
-    if (!authForm.email.trim() || !authForm.password.trim()) {
-      setAuthError("Inserisci email e password per accedere al prototipo protetto.");
-      return;
-    }
-    const email = authForm.email.trim().toLowerCase();
-    const password = authForm.password.trim();
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      setAuthSession({
-        provider: "email-admin",
-        role: "architect",
-        email,
-        loginAt: new Date().toISOString(),
-      });
-      setAuthError("");
-      setShowLogin(false);
-      decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-    const match = authUsers.find((user) => user.email.toLowerCase() === email && user.password === password);
-    if (!match) {
-      setAuthError("Credenziali non valide. Per l'accesso admin usa l'email configurata e la password assegnata.");
-      return;
-    }
-    setAuthSession({
-      provider: match.role === "architect" ? "email-admin" : "email-preview",
-      role: match.role || "client",
-      email,
-      loginAt: new Date().toISOString(),
-    });
-    setAuthError("");
-    setShowLogin(false);
-    decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const handleAdminAccess = () => {
-    setAuthForm({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-    setAuthSession({
-      provider: "email-admin",
-      role: "architect",
-      email: ADMIN_EMAIL,
-      loginAt: new Date().toISOString(),
-    });
-    setAuthError("");
-    setShowLogin(false);
-    decisionsRef.current && decisionsRef.current.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const handleRegister = () => {
-    if (!authForm.email.trim() || !authForm.password.trim()) {
-      setAuthError("Inserisci email e password per registrare un accesso locale prototipo.");
-      return;
-    }
-    const email = authForm.email.trim().toLowerCase();
-    if (authUsers.some((user) => user.email.toLowerCase() === email)) {
-      setAuthError("Questa email è già registrata. Usa Accedi.");
-      return;
-    }
-    setAuthUsers((prev) => [...prev, { email, password: authForm.password.trim(), role: "client" }]);
-    setAuthError("Registrazione locale completata. Ora puoi accedere.");
-    setAuthMode("login");
-  };
-
-  const handleProviderClick = (provider) => {
-    setAuthError(`${provider} sarà attivato con Firebase su Vercel. Per ora puoi entrare nel prototipo usando email + password.`);
-  };
-
-  const handleLogout = () => {
-    setAuthSession(null);
-    setActiveEditDecision(null);
-    setIsDrawing(false);
-  };
-
-  const handleToggleEdit = (decisionId) => {
-    setActiveEditDecision((prev) => (prev === decisionId ? null : decisionId));
-    setIsDrawing(false);
-  };
-
-  const handleChoose = (decisionId, optionKey, option) => {
-    if (!requireAccess("Accedi per confermare una versione e salvare la scelta nel Project DNA.")) return;
-    setChoices((prev) => ({ ...prev, [decisionId]: optionKey }));
-    setDna((prev) => {
-      const next = { ...prev, decisioni_raw: { ...prev.decisioni_raw, [decisionId]: optionKey } };
-      if (option.materiale && !next.materiali.includes(option.materiale)) {
-        next.materiali = [...next.materiali, option.materiale];
-      }
-      return next;
-    });
-  };
-
-  const handleReact = (decisionId, emoji, evt) => {
-    if (!requireAccess("Accedi per registrare reazioni e aprire Project Intelligence.")) return;
-    setReactions((prev) => ({ ...prev, [decisionId]: emoji }));
-    setDna((prev) => ({ ...prev, reazioni: { ...prev.reazioni, [decisionId]: emoji } }));
-
-    if (emoji === "🤔" || emoji === "❌") {
-      // Ancora il popup vicino al bottone appena toccato, non al centro della viewport:
-      // così compare dove si trova davvero il cliente, non in cima alla pagina (hero).
-      const rect = evt.currentTarget.getBoundingClientRect();
-      const viewportX = rect.left + rect.width / 2;
-      const viewportY = rect.top;
-      openPopupForArea(decisionId, "la scelta appena espressa", {
-        x: viewportX + window.scrollX,
-        y: viewportY + window.scrollY,
-      }, viewportY);
-    }
-  };
-
-  const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride, annotation) => {
-    // placeAbove va deciso sullo spazio DISPONIBILE NELLA VIEWPORT, non sulla posizione
-    // assoluta nella pagina — altrimenti da scrollati in basso il calcolo è sbagliato.
-    const viewportY = viewportYOverride != null ? viewportYOverride : anchorPagePx.y - window.scrollY;
-    const placeAbove = viewportY > window.innerHeight - 260;
-    setPopup({
-      open: true,
-      decisionId,
-      annotationId: annotation ? annotation.id : null,
-      area,
-      anchor: anchorPagePx,
-      placeAbove,
-      step: annotation && annotation.aiResult ? "confirm" : "intent",
-      quickChoice: annotation ? annotation.quickChoice : null,
-      customText: annotation ? annotation.customText || "" : "",
-      aiResult: annotation ? annotation.aiResult : null,
-    });
-  };
-
-  const handleMark = (decisionId, optionKey, area, localAnchor, wrapRef) => {
-    if (!requireAccess("Accedi per creare annotazioni persistenti e attivare il contesto AI.")) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const viewportY = rect.top + localAnchor.y;
-    const anchor = {
-      x: rect.left + localAnchor.x + window.scrollX,
-      y: viewportY + window.scrollY,
-    };
-    const annotation = createAnnotationRecord({
-      decisionId,
-      optionKey,
-      area,
-      localAnchor,
-      frameRect: { width: rect.width, height: rect.height },
-    });
-    setAnnotations((prev) => [...prev, annotation]);
-    openPopupForArea(decisionId, area, anchor, viewportY, annotation);
-  };
-
-  const handleOpenAnnotation = (annotation, wrapRef) => {
-    if (!requireAccess("Accedi per riaprire le annotazioni e il relativo contesto AI.")) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const localX = rect.width * annotation.xRatio;
-    const localY = rect.height * annotation.yRatio;
-    const viewportY = rect.top + localY;
-    const anchor = {
-      x: rect.left + localX + window.scrollX,
-      y: viewportY + window.scrollY,
-    };
-    openPopupForArea(annotation.decisionId, annotation.area, anchor, viewportY, annotation);
-  };
-
-  const runIntelligence = async (quickChoice, customText) => {
-    setPopup((p) => ({ ...p, step: "thinking", quickChoice, customText }));
-    const [aiResult] = await Promise.all([
-      askProjectIntelligence({ area: popup.area, quickChoice, customText }),
-      new Promise((res) => setTimeout(res, 1400)),
-    ]);
-    setPopup((p) => ({ ...p, step: "confirm", aiResult }));
-  };
-
-  const handleQuickChoice = (choice) => {
-    if (choice === "Altro…") {
-      setPopup((p) => ({ ...p, quickChoice: choice }));
-      return;
-    }
-    runIntelligence(choice, "");
-  };
-
-  const handleCustomChange = (val) => {
-    setPopup((p) => ({ ...p, customText: val }));
-  };
-
-  const handleConfirmCustom = () => {
-    runIntelligence("Altro…", popup.customText);
-  };
-
-  const handleEditIntent = (val) => {
-    setPopup((p) => ({ ...p, aiResult: { ...p.aiResult, design_intent: val } }));
-  };
-
-  const handleConfirmSaved = () => {
-    const dnaUpdate = buildDNAUpdate({ annotationId: popup.annotationId, area: popup.area, aiResult: popup.aiResult, quickChoice: popup.quickChoice });
-    const record = {
-      annotationId: popup.annotationId || null,
-      area: popup.area,
-      intent_label: popup.quickChoice,
-      design_intent: popup.aiResult.design_intent,
-      proposal: popup.aiResult.proposal || null,
-      inspiration_object: popup.aiResult.inspiration_object || null,
-      reason: dnaUpdate.reason,
-      confidence: dnaUpdate.confidence,
-      ts: new Date().toISOString(),
-    };
-    setDna((prev) => ({
-      ...prev,
-      materiali: appendUniqueValues(prev.materiali, dnaUpdate.materials),
-      luce: appendUniqueValues(prev.luce, dnaUpdate.lighting ? [dnaUpdate.lighting] : []),
-      stile: appendUniqueValues(prev.stile, popup.aiResult.inspiration_object ? [popup.aiResult.inspiration_object.style] : []),
-      funzioni_richieste: appendUniqueValues(prev.funzioni_richieste, popup.aiResult.proposal ? [popup.aiResult.proposal.functional_improvements] : []),
-      dna_updates: [...prev.dna_updates, dnaUpdate],
-      inspiration_objects: popup.annotationId
-        ? [
-            ...prev.inspiration_objects.filter((item) => item.annotationId !== popup.annotationId),
-            {
-              annotationId: popup.annotationId,
-              area: popup.area,
-              ...popup.aiResult.inspiration_object,
-              timestamp: dnaUpdate.timestamp,
-            },
-          ]
-        : [
-            ...prev.inspiration_objects,
-            {
-              annotationId: popup.annotationId,
-              area: popup.area,
-              ...popup.aiResult.inspiration_object,
-              timestamp: dnaUpdate.timestamp,
-            },
-          ],
-      intenzioni_validate: popup.annotationId
-        ? [
-            ...prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
-            record,
-          ]
-        : [...prev.intenzioni_validate, record],
-      render_prompt_current: extendRenderPrompt(prev.render_prompt_current || BASE_RENDER_PROMPT, popup.area, popup.aiResult),
-      render_prompt_history: [
-        ...prev.render_prompt_history,
-        {
-          version: (prev.render_prompt_history[prev.render_prompt_history.length - 1]?.version || 1) + 1,
-          prompt: extendRenderPrompt(prev.render_prompt_current || BASE_RENDER_PROMPT, popup.area, popup.aiResult),
-          reason: dnaUpdate.reason,
-          area: popup.area,
-          confidence: dnaUpdate.confidence,
-          ts: dnaUpdate.timestamp,
-        },
-      ],
-      system_feedback: popup.aiResult.system_feedback
-        ? [
-            ...prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
-            {
-              annotationId: popup.annotationId || null,
-              area: popup.area,
-              note: popup.aiResult.system_feedback,
-              ts: new Date().toISOString(),
-            },
-          ]
-        : prev.system_feedback,
-    }));
-    setLycheePrompt((prev) => extendRenderPrompt(prev || BASE_RENDER_PROMPT, popup.area, popup.aiResult));
-    if (popup.annotationId) {
-      setAnnotations((prev) =>
-        prev.map((ann) =>
-          ann.id === popup.annotationId
-            ? {
-                ...ann,
-                quickChoice: popup.quickChoice,
-                customText: popup.customText,
-                aiResult: popup.aiResult,
-                suggestion: popup.aiResult.proposal?.design_intent || popup.aiResult.interpretation || popup.quickChoice || "Suggerimento AI",
-                status: "saved",
-              }
-            : ann
-        )
-      );
-    }
-    setPopup((p) => ({ ...p, step: "saved" }));
-    setTimeout(() => setPopup({ open: false }), 2200);
-  };
-
-  const handleClosePopup = () => setPopup({ open: false });
-
-  const handleRemoveAnnotation = () => {
-    if (!popup.annotationId) return;
-    setAnnotations((prev) => prev.filter((ann) => ann.id !== popup.annotationId));
-    setDna((prev) => ({
-      ...prev,
-      intenzioni_validate: prev.intenzioni_validate.filter((item) => item.annotationId !== popup.annotationId),
-      dna_updates: prev.dna_updates.filter((item) => item.annotationId !== popup.annotationId),
-      inspiration_objects: prev.inspiration_objects.filter((item) => item.annotationId !== popup.annotationId),
-      system_feedback: prev.system_feedback.filter((item) => item.annotationId !== popup.annotationId),
-    }));
-    setPopup({ open: false });
-  };
-
-  const handleSendEmail = () => {
-    if (!requireAccess("Accedi per esportare e inviare il Project DNA all'architetto.")) return;
-    const dnaLines = [
-      `Progetto: ${dna.progetto}`,
-      `Cliente: ${dna.cliente}`,
-      "",
-      "— DECISIONI —",
-      ...Object.entries(dna.decisioni_raw).map(([k, v]) => `${k}: ${v}`),
-      "",
-      "— REAZIONI —",
-      ...Object.entries(dna.reazioni).map(([k, v]) => `${k}: ${v}`),
-      "",
-      "— MATERIALI —",
-      dna.materiali.join(", ") || "—",
-      "",
-      "— INTENZIONI VALIDATE —",
-      ...dna.intenzioni_validate.map(
-        (r) => `[${r.area}] ${r.intent_label || ""}: ${r.design_intent}`
-      ),
-      "",
-      "— PROMPT LYCHEE (editato dall'architetto) —",
-      lycheePrompt,
-      "",
-      "===== NOTE INTERNE — solo per architetto, non condivise col cliente =====",
-      ...dna.system_feedback.map((f) => `[${f.area}] ${f.note}`),
-    ].join("\n");
-
-    const subject = encodeURIComponent(`IEL — Project DNA — ${dna.progetto}`);
-    const body = encodeURIComponent(dnaLines);
-    window.location.href = `mailto:${ARCHITECT_EMAIL}?subject=${subject}&body=${body}`;
-  };
-
-  const totalDecisions = DECISIONS.length;
-  const madeDecisions = Object.keys(choices).length;
-  const decisionProgress = totalDecisions ? madeDecisions / totalDecisions : 0;
-
-  return (
-    <div className="iel-app">
-      <TopNav
-        active={navActive}
-        onNavigate={handleNavigate}
-        authSession={authSession}
-        onOpenLogin={() => {
-          setAuthMode("login");
-          setShowLogin(true);
-          setAuthError("");
-        }}
-        onLogout={handleLogout}
-      />
-      <div className="progress-bar">
-        <div
-          className="progress-bar__fill"
-          style={{ width: `${Math.max(decisionProgress, scrollProgress) * 100}%` }}
-        />
-      </div>
-
-      <section className="hero">
-        <HeroShaderCanvas />
-        <HeroMonolith />
-        <div className="hero__grid" />
-        <div className="hero__content">
-          <div className="hero__eyebrow">IEL · Design Iteration Engine</div>
-          <h1 className="hero__title" data-text="Villa 127/C">
-            Villa 127/C
-          </h1>
-          <p className="hero__subtitle">
-            Ogni scelta che fai qui diventa parte del Project DNA — e guida il prossimo render.
-          </p>
-          <button
-            className="hero__cta"
-            onClick={() => {
-              if (authSession) handleNavigate("progetto");
-              else {
-                setAuthMode("login");
-                setShowLogin(true);
-                setAuthError("");
-              }
-            }}
-          >
-            {authSession ? "Apri il progetto" : "Accedi al progetto"}
-          </button>
-        </div>
-      </section>
-
-      <div className="live-notice">● un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
-
-      <div ref={decisionsRef}>
-        {DECISIONS.map((decision) => (
-          <section className="decision-section" key={decision.id}>
-            <div className="decision-section__eyebrow">{decision.eyebrow}</div>
-            <h2 className="decision-section__title">{decision.title}</h2>
-            <p className="decision-section__hint">{decision.hint}</p>
-
-            {!isMobile && (
-              <div className="compare-desktop">
-                <DesktopCompareCard
-                  decision={decision}
-                  option={decision.optionA}
-                  optionKey="optionA"
-                  chosen={choices[decision.id] === "optionA"}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionA")}
-                  onChoose={handleChoose}
-                  dnaMateriali={dna.materiali}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-                <DesktopCompareCard
-                  decision={decision}
-                  option={decision.optionB}
-                  optionKey="optionB"
-                  chosen={choices[decision.id] === "optionB"}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionB")}
-                  onChoose={handleChoose}
-                  dnaMateriali={dna.materiali}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-              </div>
-            )}
-
-            {isMobile && (
-              <div className="compare-mobile">
-                <MobileCompareCard
-                  decision={decision}
-                  chosen={choices[decision.id]}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === choices[decision.id])}
-                  onChoose={handleChoose}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-              </div>
-            )}
-
-            <ReactionBar decisionId={decision.id} reaction={reactions[decision.id]} onReact={handleReact} />
-          </section>
-        ))}
-      </div>
-
-      <BuildingOverviewSection onZoom={(src, alt) => setZoom({ src, alt })} />
-
-      <section className="decision-section">
-        <div className="decision-section__eyebrow">Struttura</div>
-        <h2 className="decision-section__title">Sezioni e Prospetti</h2>
-        <p className="decision-section__hint">Le tavole disponibili sono già consultabili. Tocca un'immagine per leggerla meglio.</p>
-      </section>
-      <div className="placeholder-grid">
-        {PLACEHOLDERS.map((p) => (
-          <PlaceholderCard item={p} key={p.id} onZoom={(src, alt) => setZoom({ src, alt })} />
-        ))}
-      </div>
-
-      <section className="send-section">
-        <h2 className="send-section__title">Invia il Project DNA all'architetto</h2>
-        <p>Il DNA raccoglie decisioni, reazioni e intenzioni validate. Puoi modificare il prompt per Lychee prima dell'invio.</p>
-        <div className="send-section__lychee-label">Prompt Lychee (editabile)</div>
-        <textarea
-          className="send-section__textarea"
-          value={lycheePrompt}
-          onChange={(e) => setLycheePrompt(e.target.value)}
-        />
-        <div className="send-section__internal-note">
-          L'email include anche le note interne (system feedback) — visibili solo a te, mai al cliente.
-        </div>
-        <button className="send-section__cta" onClick={handleSendEmail}>
-          Invia email all'architetto
-        </button>
-      </section>
-
-      {isMobile && <BottomNav onNavigate={handleNavigate} />}
-
-      <ProjectIntelligencePanel
-        popup={popup}
-        onQuickChoice={handleQuickChoice}
-        onCustomChange={handleCustomChange}
-        onConfirm={popup.quickChoice === "Altro…" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}
-        onEdit={handleEditIntent}
-        onRemove={handleRemoveAnnotation}
-        onClose={handleClosePopup}
-      />
-
-      {showDNA && <DNAViewPanel dna={dna} onClose={() => setShowDNA(false)} />}
-      {showIntelligenceSummary && (
-        <IntelligenceSummaryPanel dna={dna} onClose={() => setShowIntelligenceSummary(false)} />
-      )}
-      {zoom && <ZoomViewer src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)} />}
-      <LoginOverlay
-        open={showLogin}
-        authError={authError}
-        form={authForm}
-        mode={authMode}
-        onModeChange={(mode) => {
-          setAuthMode(mode);
-          setAuthError("");
-        }}
-        onChange={handleAuthFieldChange}
-        onEmailAccess={handleEmailAccess}
-        onAdminAccess={handleAdminAccess}
-        onRegister={handleRegister}
-        onProviderClick={handleProviderClick}
-        onClose={() => {
-          setShowLogin(false);
-          setAuthError("");
-        }}
-      />
     </div>
   );
 }

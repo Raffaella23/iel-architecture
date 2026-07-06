@@ -5,48 +5,15 @@ import "./App.css";
    IEL — Interactive Experience Layer — Villa 127/C
    App.js v0.9 — fix mirati, nessuna riscrittura
 
-   Fix di questa versione:
-   - Mobile: "Edita" (disegno col dito) si attiva SOLO dopo aver scelto la versione,
-     evita conflitti col trascinamento dello slider prima della scelta.
-   - Bug di posizionamento dei popup risolto: .pi-anchor è position:absolute ma le
-     coordinate erano calcolate come fossero position:fixed (mancava lo scroll offset),
-     per questo i popup comparivano sempre vicino all'hero. Ora sono ancorati al punto
-     esatto (segno disegnato o bottone reazione toccato) in coordinate di pagina reali.
-   - Zoom immagini: nuovo ZoomViewer con pinch a due dita, rotellina, doppio tap/click,
-     trascinamento quando ingrandito. Disponibile su tutte le planimetrie e sulla
-     nuova galleria vista d'insieme.
-   - Nuova sezione "Vista d'insieme & Palette Materiali" con edificio1.png/edificio2.png,
-     zoomabile per leggere i dettagli materici.
+   v0.9.2 — Fix visibilità e privacy (di questa modifica):
+   - Il contenuto sotto la Hero (decisioni, vista d'insieme, placeholder,
+     invio feedback) è ora visibile SOLO dopo login. Prima del login si vede
+     solo la Hero pubblica + invito ad accedere.
+   - Project Intelligence: la griglia tecnica (materiali/rischi/benefici) e
+     l'Inspiration Object (prompt Lychee) sono visibili SOLO al ruolo
+     "architect". Il cliente vede solo il design_intent in linguaggio semplice.
 
-   v0.8 — Cosa cambia rispetto a v0.7:
-   - Nav funzionante (Progetto / Edita / Intelligence / DNA) — dal doc "Architectural
-     Decision Intelligence Engine", senza toccare il naming bloccato "Project Intelligence".
-   - "Edita" diventa il nome dell'AZIONE di annotazione (disegnare sul piano),
-     distinta dal popup AI che resta "Project Intelligence".
-   - Project DNA ha un nuovo campo `system_feedback`: note interne per l'architetto,
-     MAI mostrate al cliente, generate insieme all'interpretazione AI.
-   - L'AI risponde sempre in JSON strutturato (interpretation, design_intent,
-     open_questions, system_feedback) — il testo che vede il cliente è SOLO
-     `design_intent`, letto da quel JSON.
-   - Selettore materiali: non è un flusso separato, sono chip che confermano la
-     materialità implicita nella scelta A/B già esistente (Calacatta vs materica calda).
-   - Blur del piano: mai durante il disegno, opzionale/soft quando Project
-     Intelligence è aperta e non si sta disegnando. Default: nessun blur.
-
-   v0.9.1 — Fix privacy report (di questa modifica):
-   - La sezione finale "Invia Project DNA" ora distingue ruolo cliente/architetto:
-     il cliente invia solo scelte/reazioni/osservazioni in linguaggio semplice,
-     l'architetto vede e invia anche prompt Lychee + note interne.
-
-   Cosa NON cambia (bloccato, v0.7):
-   - Reazioni emoji 😍 🤔 ❌
-   - Email architetto con DNA completo + reazioni + intenzioni validate
-   - Prompt Lychee editabile prima dell'invio
-   - Project DNA persistente in localStorage, sempre append mai overwrite
-   - Canvas di disegno sopra l'immagine (stesso nodo, non riquadro separato)
-   - 8 placeholder (2 sezioni, 4 prospetti, interrato, giardino)
-   - Naming "Project Intelligence"
-   - Flusso: intent → thinking 1.4s → confirm → saved
+   (log storico invariato sotto)
    ============================================================ */
 
 const ARCHITECT_EMAIL = "cianiraffaella@gmail.com";
@@ -155,7 +122,6 @@ function emptyDNA() {
         ts: new Date().toISOString(),
       },
     ],
-    // NUOVO — solo per architetto, mai mostrato al cliente
     system_feedback: [],
   };
 }
@@ -628,7 +594,7 @@ function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onE
         <div className="login-panel__eyebrow">Ingresso protetto</div>
         <h2 className="login-panel__title">{mode === "login" ? "Accedi al progetto" : "Registrati al progetto"}</h2>
         <p className="login-panel__body">
-          La Hero resta pubblica. Le interazioni che modificano Project DNA, annotazioni e decisioni richiedono accesso.
+          La Hero resta pubblica. Tutto il resto del progetto (decisioni, materiali, DNA) richiede accesso.
         </p>
 
         <div className="login-panel__switch">
@@ -708,6 +674,24 @@ function LoginOverlay({ open, authError, form, mode, onModeChange, onChange, onE
         </button>
       </div>
     </div>
+  );
+}
+
+/* ---------------- LOCKED PREVIEW (nuovo — sostituisce il contenuto se non loggati) ---------------- */
+
+function LockedPreview({ onOpenLogin }) {
+  return (
+    <section className="decision-section" style={{ textAlign: "center" }}>
+      <div className="decision-section__eyebrow">Accesso riservato</div>
+      <h2 className="decision-section__title">Il progetto continua dopo l'accesso</h2>
+      <p className="decision-section__hint">
+        Decisioni, materiali, planimetrie e Project DNA sono visibili solo dopo aver effettuato l'accesso
+        con l'email e il codice ricevuti dall'architetto.
+      </p>
+      <button className="hero__cta" style={{ marginTop: 18 }} onClick={onOpenLogin}>
+        Accedi al progetto
+      </button>
+    </section>
   );
 }
 
@@ -823,9 +807,10 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
-function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
+function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
+  const isArchitect = role === "architect";
 
   const style = {
     left: Math.max(12, Math.min(anchor.x - 160, window.innerWidth - 340)),
@@ -880,7 +865,9 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
         {step === "confirm" && aiResult && (
           <>
             <div className="pi-confirm__intent">{aiResult.design_intent}</div>
-            {aiResult.proposal && (
+
+            {/* Griglia tecnica e Inspiration Object: SOLO architetto */}
+            {isArchitect && aiResult.proposal && (
               <div className="pi-proposal-grid">
                 <div><b>Materiali</b><span>{(aiResult.proposal.materials || []).join(", ") || "—"}</span></div>
                 <div><b>Luce</b><span>{aiResult.proposal.lighting_strategy || "—"}</span></div>
@@ -890,21 +877,22 @@ function ProjectIntelligencePanel({ popup, onQuickChoice, onCustomChange, onConf
                 <div><b>Rischi</b><span>{(aiResult.proposal.risks || []).join(" · ") || "—"}</span></div>
               </div>
             )}
-            {aiResult.inspiration_object && (
+            {isArchitect && aiResult.inspiration_object && (
               <div className="pi-inspiration-box">
-                <div className="pi-inspiration-box__title">Inspiration Object</div>
+                <div className="pi-inspiration-box__title">Inspiration Object (solo architetto)</div>
                 <div><b>Style</b> {aiResult.inspiration_object.style}</div>
                 <div><b>Keywords</b> {(aiResult.inspiration_object.keywords || []).join(", ")}</div>
                 <div><b>Prompt</b> {aiResult.inspiration_object.image_prompt}</div>
               </div>
             )}
-            {aiResult.open_questions && aiResult.open_questions.length > 0 && (
+            {isArchitect && aiResult.open_questions && aiResult.open_questions.length > 0 && (
               <div className="pi-confirm__questions">
                 {aiResult.open_questions.map((q, i) => (
                   <div key={i}>· {q}</div>
                 ))}
               </div>
             )}
+
             <textarea
               className="pi-confirm__edit"
               value={aiResult.design_intent}
@@ -1150,8 +1138,8 @@ function ZoomViewer({ src, alt, onClose }) {
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const pointers = useRef(new Map());
-  const pinchStart = useRef(null); // { dist, scale }
-  const dragStart = useRef(null); // { x, y, posX, posY }
+  const pinchStart = useRef(null);
+  const dragStart = useRef(null);
 
   const clampScale = (s) => Math.max(1, Math.min(4, s));
 
@@ -1381,7 +1369,7 @@ export default function App() {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [popup, setPopup] = useState({ open: false });
-  const [zoom, setZoom] = useState(null); // { src, alt } | null
+  const [zoom, setZoom] = useState(null);
 
   const decisionsRef = useRef(null);
 
@@ -1543,8 +1531,6 @@ export default function App() {
     setDna((prev) => ({ ...prev, reazioni: { ...prev.reazioni, [decisionId]: emoji } }));
 
     if (emoji === "🤔" || emoji === "❌") {
-      // Ancora il popup vicino al bottone appena toccato, non al centro della viewport:
-      // così compare dove si trova davvero il cliente, non in cima alla pagina (hero).
       const rect = evt.currentTarget.getBoundingClientRect();
       const viewportX = rect.left + rect.width / 2;
       const viewportY = rect.top;
@@ -1556,8 +1542,6 @@ export default function App() {
   };
 
   const openPopupForArea = (decisionId, area, anchorPagePx, viewportYOverride, annotation) => {
-    // placeAbove va deciso sullo spazio DISPONIBILE NELLA VIEWPORT, non sulla posizione
-    // assoluta nella pagina — altrimenti da scrollati in basso il calcolo è sbagliato.
     const viewportY = viewportYOverride != null ? viewportYOverride : anchorPagePx.y - window.scrollY;
     const placeAbove = viewportY > window.innerHeight - 260;
     setPopup({
@@ -1833,119 +1817,132 @@ export default function App() {
 
       <div className="live-notice">● un edificio che si costruisce insieme a voi, decisione dopo decisione</div>
 
-      <div ref={decisionsRef}>
-        {DECISIONS.map((decision) => (
-          <section className="decision-section" key={decision.id}>
-            <div className="decision-section__eyebrow">{decision.eyebrow}</div>
-            <h2 className="decision-section__title">{decision.title}</h2>
-            <p className="decision-section__hint">{decision.hint}</p>
+      {!authSession ? (
+        <LockedPreview
+          onOpenLogin={() => {
+            setAuthMode("login");
+            setShowLogin(true);
+            setAuthError("");
+          }}
+        />
+      ) : (
+        <>
+          <div ref={decisionsRef}>
+            {DECISIONS.map((decision) => (
+              <section className="decision-section" key={decision.id}>
+                <div className="decision-section__eyebrow">{decision.eyebrow}</div>
+                <h2 className="decision-section__title">{decision.title}</h2>
+                <p className="decision-section__hint">{decision.hint}</p>
 
-            {!isMobile && (
-              <div className="compare-desktop">
-                <DesktopCompareCard
-                  decision={decision}
-                  option={decision.optionA}
-                  optionKey="optionA"
-                  chosen={choices[decision.id] === "optionA"}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionA")}
-                  onChoose={handleChoose}
-                  dnaMateriali={dna.materiali}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-                <DesktopCompareCard
-                  decision={decision}
-                  option={decision.optionB}
-                  optionKey="optionB"
-                  chosen={choices[decision.id] === "optionB"}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionB")}
-                  onChoose={handleChoose}
-                  dnaMateriali={dna.materiali}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-              </div>
-            )}
+                {!isMobile && (
+                  <div className="compare-desktop">
+                    <DesktopCompareCard
+                      decision={decision}
+                      option={decision.optionA}
+                      optionKey="optionA"
+                      chosen={choices[decision.id] === "optionA"}
+                      isDrawing={isDrawing}
+                      editEnabled={activeEditDecision === decision.id}
+                      onToggleEdit={handleToggleEdit}
+                      onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                      onOpenAnnotation={handleOpenAnnotation}
+                      annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionA")}
+                      onChoose={handleChoose}
+                      dnaMateriali={dna.materiali}
+                      onZoom={(src, alt) => setZoom({ src, alt })}
+                    />
+                    <DesktopCompareCard
+                      decision={decision}
+                      option={decision.optionB}
+                      optionKey="optionB"
+                      chosen={choices[decision.id] === "optionB"}
+                      isDrawing={isDrawing}
+                      editEnabled={activeEditDecision === decision.id}
+                      onToggleEdit={handleToggleEdit}
+                      onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                      onOpenAnnotation={handleOpenAnnotation}
+                      annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === "optionB")}
+                      onChoose={handleChoose}
+                      dnaMateriali={dna.materiali}
+                      onZoom={(src, alt) => setZoom({ src, alt })}
+                    />
+                  </div>
+                )}
 
-            {isMobile && (
-              <div className="compare-mobile">
-                <MobileCompareCard
-                  decision={decision}
-                  chosen={choices[decision.id]}
-                  isDrawing={isDrawing}
-                  editEnabled={activeEditDecision === decision.id}
-                  onToggleEdit={handleToggleEdit}
-                  onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
-                  onOpenAnnotation={handleOpenAnnotation}
-                  annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === choices[decision.id])}
-                  onChoose={handleChoose}
-                  onZoom={(src, alt) => setZoom({ src, alt })}
-                />
-              </div>
-            )}
+                {isMobile && (
+                  <div className="compare-mobile">
+                    <MobileCompareCard
+                      decision={decision}
+                      chosen={choices[decision.id]}
+                      isDrawing={isDrawing}
+                      editEnabled={activeEditDecision === decision.id}
+                      onToggleEdit={handleToggleEdit}
+                      onDraw={{ setDrawing: setIsDrawing, onMark: handleMark }}
+                      onOpenAnnotation={handleOpenAnnotation}
+                      annotations={annotations.filter((ann) => ann.decisionId === decision.id && ann.optionKey === choices[decision.id])}
+                      onChoose={handleChoose}
+                      onZoom={(src, alt) => setZoom({ src, alt })}
+                    />
+                  </div>
+                )}
 
-            <ReactionBar decisionId={decision.id} reaction={reactions[decision.id]} onReact={handleReact} />
+                <ReactionBar decisionId={decision.id} reaction={reactions[decision.id]} onReact={handleReact} />
+              </section>
+            ))}
+          </div>
+
+          <BuildingOverviewSection onZoom={(src, alt) => setZoom({ src, alt })} />
+
+          <section className="decision-section">
+            <div className="decision-section__eyebrow">Struttura</div>
+            <h2 className="decision-section__title">Sezioni e Prospetti</h2>
+            <p className="decision-section__hint">Le tavole disponibili sono già consultabili. Tocca un'immagine per leggerla meglio.</p>
           </section>
-        ))}
-      </div>
+          <div className="placeholder-grid">
+            {PLACEHOLDERS.map((p) => (
+              <PlaceholderCard item={p} key={p.id} onZoom={(src, alt) => setZoom({ src, alt })} />
+            ))}
+          </div>
 
-      <BuildingOverviewSection onZoom={(src, alt) => setZoom({ src, alt })} />
+          <section className="send-section">
+            <h2 className="send-section__title">
+              {authSession?.role === "architect"
+                ? "Invia il Project DNA all'architetto"
+                : "Condividi le tue impressioni con l'architetto"}
+            </h2>
 
-      <section className="decision-section">
-        <div className="decision-section__eyebrow">Struttura</div>
-        <h2 className="decision-section__title">Sezioni e Prospetti</h2>
-        <p className="decision-section__hint">Le tavole disponibili sono già consultabili. Tocca un'immagine per leggerla meglio.</p>
-      </section>
-      <div className="placeholder-grid">
-        {PLACEHOLDERS.map((p) => (
-          <PlaceholderCard item={p} key={p.id} onZoom={(src, alt) => setZoom({ src, alt })} />
-        ))}
-      </div>
+            {authSession?.role === "architect" ? (
+              <>
+                <p>Il DNA raccoglie decisioni, reazioni e intenzioni validate. Puoi modificare il prompt per Lychee prima dell'invio.</p>
+                <div className="send-section__lychee-label">Prompt Lychee (editabile)</div>
+                <textarea
+                  className="send-section__textarea"
+                  value={lycheePrompt}
+                  onChange={(e) => setLycheePrompt(e.target.value)}
+                />
+                <div className="send-section__internal-note">
+                  L'email include anche le note interne (system feedback) — visibili solo a te, mai al cliente.
+                </div>
+              </>
+            ) : (
+              <p>
+                Le vostre scelte, reazioni e osservazioni verranno raccolte in un unico messaggio per l'architetto —
+                niente gergo tecnico, solo ciò che avete scelto e detto.
+              </p>
+            )}
 
-      <section className="send-section">
-        <h2 className="send-section__title">
-          {authSession?.role === "architect"
-            ? "Invia il Project DNA all'architetto"
-            : "Condividi le tue impressioni con l'architetto"}
-        </h2>
+            <button className="send-section__cta" onClick={handleSendEmail}>
+              {authSession?.role === "architect" ? "Invia email tecnica all'architetto" : "Invia il tuo feedback all'architetto"}
+            </button>
+          </section>
+        </>
+      )}
 
-        {authSession?.role === "architect" ? (
-          <>
-            <p>Il DNA raccoglie decisioni, reazioni e intenzioni validate. Puoi modificare il prompt per Lychee prima dell'invio.</p>
-            <div className="send-section__lychee-label">Prompt Lychee (editabile)</div>
-            <textarea
-              className="send-section__textarea"
-              value={lycheePrompt}
-              onChange={(e) => setLycheePrompt(e.target.value)}
-            />
-            <div className="send-section__internal-note">
-              L'email include anche le note interne (system feedback) — visibili solo a te, mai al cliente.
-            </div>
-          </>
-        ) : (
-          <p>
-            Le vostre scelte, reazioni e osservazioni verranno raccolte in un unico messaggio per l'architetto —
-            niente gergo tecnico, solo ciò che avete scelto e detto.
-          </p>
-        )}
-
-        <button className="send-section__cta" onClick={handleSendEmail}>
-          {authSession?.role === "architect" ? "Invia email tecnica all'architetto" : "Invia il tuo feedback all'architetto"}
-        </button>
-      </section>
-
-      {isMobile && <BottomNav onNavigate={handleNavigate} />}
+      {isMobile && authSession && <BottomNav onNavigate={handleNavigate} />}
 
       <ProjectIntelligencePanel
         popup={popup}
+        role={authSession?.role}
         onQuickChoice={handleQuickChoice}
         onCustomChange={handleCustomChange}
         onConfirm={popup.quickChoice === "Altro…" && popup.step === "intent" ? handleConfirmCustom : handleConfirmSaved}

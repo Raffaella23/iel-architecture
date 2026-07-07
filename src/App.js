@@ -377,7 +377,7 @@ nessun preambolo, nessun code fence. Schema esatto:
 /* ---------------- IMMAGINI DI RIFERIMENTO (Unsplash, via api/reference-images.js) ---------------- */
 
 async function fetchReferenceImages(queries) {
-  const uniqueQueries = [...new Set((queries || []).filter(Boolean))].slice(0, 3);
+  const uniqueQueries = [...new Set((queries || []).filter(Boolean))].slice(0, 4);
   const results = await Promise.all(
     uniqueQueries.map(async (query) => {
       try {
@@ -398,11 +398,12 @@ async function fetchReferenceImages(queries) {
 
 function buildImageQueries(area, inspirationObject) {
   if (!inspirationObject) return [`${area} architettura contemporanea`];
-  const { style, materials = [] } = inspirationObject;
+  const { style, materials = [], colors = [] } = inspirationObject;
   const queries = [
     `${area} ${style || ""} architecture`.trim(),
     materials[0] ? `${materials[0]} interior architecture` : style,
     materials[1] ? `${materials[1]} interior design` : `${style || ""} mediterranean home`.trim(),
+    colors[0] ? `${colors[0]} interior design detail` : `${style || ""} architectural detail`.trim(),
   ];
   return queries.filter(Boolean);
 }
@@ -841,6 +842,7 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
 function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
+  const [showReport, setShowReport] = useState(false);
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
   const isArchitect = role === "architect";
@@ -903,7 +905,7 @@ function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, 
             {aiResult.reference_images && aiResult.reference_images.length > 0 && (
               <div className="pi-reference-images" style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 10, flexWrap: "wrap" }}>
                 {aiResult.reference_images.map((img, i) => (
-                  <div key={i} style={{ flex: "1 1 30%", minWidth: 90 }}>
+                  <div key={i} style={{ flex: "1 1 45%", minWidth: 90 }}>
                     <img
                       src={img.url}
                       alt="Riferimento"
@@ -917,31 +919,45 @@ function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, 
               </div>
             )}
 
-            {/* Griglia tecnica e Inspiration Object: SOLO architetto */}
-            {isArchitect && aiResult.proposal && (
-              <div className="pi-proposal-grid">
-                <div><b>Materiali</b><span>{(aiResult.proposal.materials || []).join(", ") || "—"}</span></div>
-                <div><b>Luce</b><span>{aiResult.proposal.lighting_strategy || "—"}</span></div>
-                <div><b>Atmosfera</b><span>{aiResult.proposal.atmosphere || "—"}</span></div>
-                <div><b>Funzione</b><span>{aiResult.proposal.functional_improvements || "—"}</span></div>
-                <div><b>Benefici</b><span>{(aiResult.proposal.benefits || []).join(" · ") || "—"}</span></div>
-                <div><b>Rischi</b><span>{(aiResult.proposal.risks || []).join(" · ") || "—"}</span></div>
-              </div>
+            {/* Report tecnico: SOLO architetto, collassato di default — niente muro di testo */}
+            {isArchitect && (
+              <button
+                type="button"
+                className="pi-btn"
+                style={{ width: "100%", marginBottom: 10 }}
+                onClick={() => setShowReport((v) => !v)}
+              >
+                {showReport ? "▾ Nascondi report tecnico" : "▸ Report per l'architetto (prompt, materiali, rischi)"}
+              </button>
             )}
-            {isArchitect && aiResult.inspiration_object && (
-              <div className="pi-inspiration-box">
-                <div className="pi-inspiration-box__title">Inspiration Object (solo architetto)</div>
-                <div><b>Style</b> {aiResult.inspiration_object.style}</div>
-                <div><b>Keywords</b> {(aiResult.inspiration_object.keywords || []).join(", ")}</div>
-                <div><b>Prompt</b> {aiResult.inspiration_object.image_prompt}</div>
-              </div>
-            )}
-            {isArchitect && aiResult.open_questions && aiResult.open_questions.length > 0 && (
-              <div className="pi-confirm__questions">
-                {aiResult.open_questions.map((q, i) => (
-                  <div key={i}>· {q}</div>
-                ))}
-              </div>
+            {isArchitect && showReport && (
+              <>
+                {aiResult.proposal && (
+                  <div className="pi-proposal-grid">
+                    <div><b>Materiali</b><span>{(aiResult.proposal.materials || []).join(", ") || "—"}</span></div>
+                    <div><b>Luce</b><span>{aiResult.proposal.lighting_strategy || "—"}</span></div>
+                    <div><b>Atmosfera</b><span>{aiResult.proposal.atmosphere || "—"}</span></div>
+                    <div><b>Funzione</b><span>{aiResult.proposal.functional_improvements || "—"}</span></div>
+                    <div><b>Benefici</b><span>{(aiResult.proposal.benefits || []).join(" · ") || "—"}</span></div>
+                    <div><b>Rischi</b><span>{(aiResult.proposal.risks || []).join(" · ") || "—"}</span></div>
+                  </div>
+                )}
+                {aiResult.inspiration_object && (
+                  <div className="pi-inspiration-box">
+                    <div className="pi-inspiration-box__title">Prompt Lychee (solo architetto)</div>
+                    <div><b>Style</b> {aiResult.inspiration_object.style}</div>
+                    <div><b>Keywords</b> {(aiResult.inspiration_object.keywords || []).join(", ")}</div>
+                    <div><b>Prompt</b> {aiResult.inspiration_object.image_prompt}</div>
+                  </div>
+                )}
+                {aiResult.open_questions && aiResult.open_questions.length > 0 && (
+                  <div className="pi-confirm__questions">
+                    {aiResult.open_questions.map((q, i) => (
+                      <div key={i}>· {q}</div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             <textarea

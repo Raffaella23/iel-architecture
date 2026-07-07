@@ -374,6 +374,39 @@ nessun preambolo, nessun code fence. Schema esatto:
   }
 }
 
+/* ---------------- IMMAGINI DI RIFERIMENTO (Unsplash, via api/reference-images.js) ---------------- */
+
+async function fetchReferenceImages(queries) {
+  const uniqueQueries = [...new Set((queries || []).filter(Boolean))].slice(0, 3);
+  const results = await Promise.all(
+    uniqueQueries.map(async (query) => {
+      try {
+        const res = await fetch("/api/reference-images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        const data = await res.json();
+        return data && data.imageUrl ? { url: data.imageUrl, credit: data.imageCredit, query } : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return results.filter(Boolean);
+}
+
+function buildImageQueries(area, inspirationObject) {
+  if (!inspirationObject) return [`${area} architettura contemporanea`];
+  const { style, materials = [] } = inspirationObject;
+  const queries = [
+    `${area} ${style || ""} architecture`.trim(),
+    materials[0] ? `${materials[0]} interior architecture` : style,
+    materials[1] ? `${materials[1]} interior design` : `${style || ""} mediterranean home`.trim(),
+  ];
+  return queries.filter(Boolean);
+}
+
 /* ---------------- HERO: shader bronzo + monolite Three.js ---------------- */
 
 function HeroShaderCanvas() {
@@ -865,6 +898,24 @@ function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, 
         {step === "confirm" && aiResult && (
           <>
             <div className="pi-confirm__intent">{aiResult.design_intent}</div>
+
+            {/* Immagini di riferimento: visibili a cliente e architetto */}
+            {aiResult.reference_images && aiResult.reference_images.length > 0 && (
+              <div className="pi-reference-images" style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                {aiResult.reference_images.map((img, i) => (
+                  <div key={i} style={{ flex: "1 1 30%", minWidth: 90 }}>
+                    <img
+                      src={img.url}
+                      alt="Riferimento"
+                      style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 4, display: "block" }}
+                    />
+                    {img.credit && (
+                      <div style={{ fontSize: 9, opacity: 0.6, marginTop: 2 }}>{img.credit}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Griglia tecnica e Inspiration Object: SOLO architetto */}
             {isArchitect && aiResult.proposal && (
@@ -1596,7 +1647,10 @@ export default function App() {
       askProjectIntelligence({ area: popup.area, quickChoice, customText }),
       new Promise((res) => setTimeout(res, 1400)),
     ]);
-    setPopup((p) => ({ ...p, step: "confirm", aiResult }));
+    const referenceImages = await fetchReferenceImages(
+      buildImageQueries(popup.area, aiResult.inspiration_object)
+    );
+    setPopup((p) => ({ ...p, step: "confirm", aiResult: { ...aiResult, reference_images: referenceImages } }));
   };
 
   const handleQuickChoice = (choice) => {

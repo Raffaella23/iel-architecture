@@ -400,12 +400,12 @@ function translateArea(area) {
   return "villa interior architecture";
 }
 
-async function tryFetchImage(query) {
+async function tryFetchImage(query, page = 1) {
   try {
     const res = await fetch("/api/reference-images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, page }),
     });
     const data = await res.json();
     return data && data.imageUrl ? { url: data.imageUrl, credit: data.imageCredit, query } : null;
@@ -416,18 +416,26 @@ async function tryFetchImage(query) {
 
 async function fetchReferenceImages(queries, fallbackQuery) {
   const uniqueQueries = [...new Set((queries || []).filter(Boolean))].slice(0, 4);
-  const results = await Promise.all(
-    uniqueQueries.map(async (query) => {
-      let result = await tryFetchImage(query);
-      // Se la query specifica non trova nulla, riprova con una query più
-      // generica sulla stessa area invece di rinunciare a quell'immagine.
-      if (!result && fallbackQuery && fallbackQuery !== query) {
-        result = await tryFetchImage(fallbackQuery);
-      }
-      return result;
-    })
-  );
-  return results.filter(Boolean);
+  const seenUrls = new Set();
+  const results = [];
+  // Sequenziale (non Promise.all): serve per sapere, tentativo dopo tentativo,
+  // quali URL sono già stati usati ed evitare di mostrare la stessa foto due volte.
+  for (let i = 0; i < uniqueQueries.length; i++) {
+    const query = uniqueQueries[i];
+    let result = await tryFetchImage(query);
+    if (result && seenUrls.has(result.url)) result = null; // scarta un doppione esatto
+    if (!result && fallbackQuery && fallbackQuery !== query) {
+      // Pagina diversa ad ogni tentativo di riserva, altrimenti la stessa query
+      // generica ripesca sempre la stessa prima foto per più slot contemporaneamente.
+      result = await tryFetchImage(fallbackQuery, i + 1);
+      if (result && seenUrls.has(result.url)) result = null;
+    }
+    if (result) {
+      seenUrls.add(result.url);
+      results.push(result);
+    }
+  }
+  return results;
 }
 
 function buildImageQueries(area, inspirationObject) {
@@ -996,11 +1004,13 @@ function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, 
               </>
             )}
 
-            <textarea
-              className="pi-confirm__edit"
-              value={aiResult.design_intent}
-              onChange={(e) => onEdit(e.target.value)}
-            />
+            {isArchitect && (
+              <textarea
+                className="pi-confirm__edit"
+                value={aiResult.design_intent}
+                onChange={(e) => onEdit(e.target.value)}
+              />
+            )}
             <div className="pi-confirm__actions">
               {popup.annotationId && (
                 <button className="pi-btn pi-btn--danger" onClick={onRemove}>

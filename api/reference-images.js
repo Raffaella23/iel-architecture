@@ -4,14 +4,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Metodo non consentito' })
   }
 
-  const { query } = req.body
+  const { query, page } = req.body
   if (!query) {
     return res.status(400).json({ error: 'query obbligatoria' })
   }
 
   try {
+    const safePage = Number.isInteger(page) && page > 0 ? page : 1
     const response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1`,
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&page=${safePage}`,
       { headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` } }
     )
     const data = await response.json()

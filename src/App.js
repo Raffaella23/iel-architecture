@@ -142,7 +142,6 @@ function AnnotationMarks({ annotations, onOpen }) {
           title={ann.area}
         >
           <span className="annotation-mark__dot" />
-          {ann.suggestion && <span className="annotation-mark__hint">{ann.suggestion}</span>}
         </button>
       ))}
     </>
@@ -210,6 +209,7 @@ function createAnnotationRecord({ decisionId, optionKey, area, localAnchor, fram
 
 function buildArchitecturalInterpretation({ area, quickChoice, customText }) {
   const request = (customText || quickChoice || "miglioramento spaziale").trim();
+  const cleanRequest = request.replace(/\?+$/, "").trim();
   const style = request.toLowerCase().includes("privacy")
     ? "contemporary private retreat"
     : request.toLowerCase().includes("luce")
@@ -243,9 +243,11 @@ function buildArchitecturalInterpretation({ area, quickChoice, customText }) {
     "Verificare allineamento con la palette già presente nel Project DNA",
     `Coordinare l'intervento con l'area ${area} senza interrompere la continuità compositiva della villa`,
   ];
+  // Formato fisso a "citazione + risposta": evita di incollare la domanda grezza
+  // dentro un template che assume una frase-obiettivo (es. "più luce"), non una domanda.
   const proposal = {
-    interpretation: `L'annotazione su ${area} suggerisce una richiesta di ${request.toLowerCase()} da tradurre in una decisione architettonica verificabile.`,
-    design_intent: `L'area ${area} viene reinterpretata come leva progettuale per ${request.toLowerCase()}, mantenendo coerenza materica e spaziale con Villa 127/C.`,
+    interpretation: `Osservazione del cliente sull'area ${area}: "${cleanRequest}".`,
+    design_intent: `Per l'area ${area}, rispetto a "${cleanRequest}": ${functional} ${atmosphere}`,
     materials,
     lighting_strategy: lighting,
     atmosphere,
@@ -259,7 +261,7 @@ function buildArchitecturalInterpretation({ area, quickChoice, customText }) {
     interpretation: proposal.interpretation,
     design_intent: proposal.design_intent,
     open_questions: ["Verificare con il cliente il livello di priorità rispetto alle altre aree annotate."],
-    system_feedback: `Il cliente tende a usare l'annotazione su ${area} per esprimere un obiettivo di ${request.toLowerCase()} più che una preferenza formale isolata.`,
+    system_feedback: `Il cliente ha annotato l'area ${area} con la richiesta: "${cleanRequest}".`,
     proposal,
     inspiration_object: {
       style,
@@ -376,34 +378,67 @@ nessun preambolo, nessun code fence. Schema esatto:
 
 /* ---------------- IMMAGINI DI RIFERIMENTO (Unsplash, via api/reference-images.js) ---------------- */
 
-async function fetchReferenceImages(queries) {
+// Unsplash è un catalogo in inglese: tradurre l'area (es. "cucina") aumenta
+// drasticamente la pertinenza e il tasso di successo della ricerca.
+const AREA_EN_MAP = [
+  ["zona notte ospiti", "guest bedroom"],
+  ["camera padronale", "master bedroom"],
+  ["living primo piano", "upper floor living room"],
+  ["cucina", "kitchen"],
+  ["pranzo", "dining room"],
+  ["bagno", "bathroom"],
+  ["living", "living room"],
+  ["giardino", "garden"],
+  ["area generica", "house interior"],
+];
+
+function translateArea(area) {
+  const a = (area || "").toLowerCase();
+  for (const [it, en] of AREA_EN_MAP) {
+    if (a.includes(it)) return en;
+  }
+  return "villa interior architecture";
+}
+
+async function tryFetchImage(query) {
+  try {
+    const res = await fetch("/api/reference-images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json();
+    return data && data.imageUrl ? { url: data.imageUrl, credit: data.imageCredit, query } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchReferenceImages(queries, fallbackQuery) {
   const uniqueQueries = [...new Set((queries || []).filter(Boolean))].slice(0, 4);
   const results = await Promise.all(
     uniqueQueries.map(async (query) => {
-      try {
-        const res = await fetch("/api/reference-images", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query }),
-        });
-        const data = await res.json();
-        return data && data.imageUrl ? { url: data.imageUrl, credit: data.imageCredit, query } : null;
-      } catch {
-        return null;
+      let result = await tryFetchImage(query);
+      // Se la query specifica non trova nulla, riprova con una query più
+      // generica sulla stessa area invece di rinunciare a quell'immagine.
+      if (!result && fallbackQuery && fallbackQuery !== query) {
+        result = await tryFetchImage(fallbackQuery);
       }
+      return result;
     })
   );
   return results.filter(Boolean);
 }
 
 function buildImageQueries(area, inspirationObject) {
-  if (!inspirationObject) return [`${area} architettura contemporanea`];
+  const areaEn = translateArea(area);
+  if (!inspirationObject) return [`${areaEn} interior architecture`];
   const { style, materials = [], colors = [] } = inspirationObject;
   const queries = [
-    `${area} ${style || ""} architecture`.trim(),
-    materials[0] ? `${materials[0]} interior architecture` : style,
-    materials[1] ? `${materials[1]} interior design` : `${style || ""} mediterranean home`.trim(),
-    colors[0] ? `${colors[0]} interior design detail` : `${style || ""} architectural detail`.trim(),
+    `${areaEn} interior design`,
+    materials[0] ? `${materials[0]} ${areaEn}` : `${areaEn} architecture`,
+    materials[1] ? `${materials[1]} interior design` : `${style || ""} interior`.trim(),
+    colors[0] ? `${colors[0]} ${areaEn} decor` : `${areaEn} architectural detail`,
   ];
   return queries.filter(Boolean);
 }
@@ -841,7 +876,7 @@ function ReactionBar({ decisionId, reaction, onReact }) {
 
 /* ---------------- PROJECT INTELLIGENCE (popup ancorato) ---------------- */
 
-function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose }) {
+function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, onConfirm, onEdit, onRemove, onClose, onZoomImage }) {
   const [showReport, setShowReport] = useState(false);
   if (!popup || !popup.open) return null;
   const { step, area, anchor, quickChoice, customText, aiResult, placeAbove } = popup;
@@ -909,7 +944,8 @@ function ProjectIntelligencePanel({ popup, role, onQuickChoice, onCustomChange, 
                     <img
                       src={img.url}
                       alt="Riferimento"
-                      style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 4, display: "block" }}
+                      onClick={() => onZoomImage && onZoomImage(img.url)}
+                      style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 4, display: "block", cursor: "zoom-in" }}
                     />
                     {img.credit && (
                       <div style={{ fontSize: 9, opacity: 0.6, marginTop: 2 }}>{img.credit}</div>
@@ -1664,7 +1700,8 @@ export default function App() {
       new Promise((res) => setTimeout(res, 1400)),
     ]);
     const referenceImages = await fetchReferenceImages(
-      buildImageQueries(popup.area, aiResult.inspiration_object)
+      buildImageQueries(popup.area, aiResult.inspiration_object),
+      `${translateArea(popup.area)} interior architecture`
     );
     setPopup((p) => ({ ...p, step: "confirm", aiResult: { ...aiResult, reference_images: referenceImages } }));
   };
@@ -2019,6 +2056,7 @@ export default function App() {
         onEdit={handleEditIntent}
         onRemove={handleRemoveAnnotation}
         onClose={handleClosePopup}
+        onZoomImage={(src) => setZoom({ src, alt: "Riferimento" })}
       />
 
       {showDNA && <DNAViewPanel dna={dna} onClose={() => setShowDNA(false)} />}

@@ -438,13 +438,45 @@ async function fetchReferenceImages(queries, fallbackQuery) {
   return results;
 }
 
-function buildImageQueries(area, inspirationObject) {
+// Parole-chiave riconosciute nella richiesta del cliente (italiano -> termine
+// inglese per Unsplash). Elenco finito: copre i casi comuni, non sostituisce
+// una vera comprensione del linguaggio (per quello serve la AI reale).
+const REQUEST_KEYWORD_MAP = [
+  ["mobil", "furniture"],
+  ["divano", "sofa"],
+  ["poltrona", "armchair"],
+  ["tavolo", "dining table"],
+  ["sedi", "chairs"],
+  ["letto", "bed"],
+  ["armadio", "wardrobe"],
+  ["illumina", "lighting fixture"],
+  ["lampad", "lamp"],
+  ["pavimento", "flooring"],
+  ["finestra", "window"],
+  ["porta", "door"],
+  ["terrazza", "terrace"],
+  ["scala", "staircase"],
+  ["colore", "color palette"],
+  ["tappeto", "rug"],
+  ["libreria", "bookshelf"],
+];
+
+function extractRequestKeywordEn(request) {
+  const r = (request || "").toLowerCase();
+  for (const [it, en] of REQUEST_KEYWORD_MAP) {
+    if (r.includes(it)) return en;
+  }
+  return null;
+}
+
+function buildImageQueries(area, inspirationObject, request) {
   const areaEn = translateArea(area);
-  if (!inspirationObject) return [`${areaEn} interior architecture`];
+  const requestEn = extractRequestKeywordEn(request);
+  if (!inspirationObject) return [requestEn ? `${requestEn} ${areaEn}` : `${areaEn} interior architecture`];
   const { style, materials = [], colors = [] } = inspirationObject;
   const queries = [
-    `${areaEn} interior design`,
-    materials[0] ? `${materials[0]} ${areaEn}` : `${areaEn} architecture`,
+    requestEn ? `${requestEn} ${areaEn}` : `${areaEn} interior design`,
+    requestEn ? `${requestEn} interior design` : (materials[0] ? `${materials[0]} ${areaEn}` : `${areaEn} architecture`),
     materials[1] ? `${materials[1]} interior design` : `${style || ""} interior`.trim(),
     colors[0] ? `${colors[0]} ${areaEn} decor` : `${areaEn} architectural detail`,
   ];
@@ -1710,7 +1742,7 @@ export default function App() {
       new Promise((res) => setTimeout(res, 1400)),
     ]);
     const referenceImages = await fetchReferenceImages(
-      buildImageQueries(popup.area, aiResult.inspiration_object),
+      buildImageQueries(popup.area, aiResult.inspiration_object, customText || quickChoice),
       `${translateArea(popup.area)} interior architecture`
     );
     setPopup((p) => ({ ...p, step: "confirm", aiResult: { ...aiResult, reference_images: referenceImages } }));

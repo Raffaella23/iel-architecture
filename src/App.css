@@ -1358,3 +1358,31 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   text-transform: uppercase;
   border-radius: var(--radius);
 }
+
+/* ---------------- FIX MOBILE: popup Project Intelligence scrollabile e centrato ----------------
+   Su schermi stretti il contenuto (testo + immagini + bottoni) può superare l'altezza
+   dello schermo. Senza questo fix, tutto ciò che sta sotto la piega resta invisibile
+   e irraggiungibile (nessuno scroll). Qui si forza un comportamento da scheda centrata
+   con scroll interno, solo sotto i 900px — desktop resta invariato. */
+@media (max-width: 900px) {
+  .pi-anchor {
+    position: fixed !important;
+    left: 4vw !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 92vw !important;
+    max-width: 92vw;
+    max-height: 88vh;
+    z-index: 300;
+  }
+
+  .pi-arrow {
+    display: none;
+  }
+
+  .pi-card {
+    max-height: 88vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

@@ -54,10 +54,10 @@ const DECISIONS = [
       materiale: "Materica calda",
     },
     hotspots: {
-      cucina: { xMin: 0, xMax: 0.35, yMin: 0, yMax: 0.5 },
-      living: { xMin: 0.35, xMax: 0.7, yMin: 0, yMax: 0.5 },
-      pranzo: { xMin: 0.35, xMax: 0.7, yMin: 0.5, yMax: 1 },
-      "zona notte ospiti": { xMin: 0.7, xMax: 1, yMin: 0, yMax: 1 },
+      "zona notte": { xMin: 0.18, xMax: 0.44, yMin: 0.20, yMax: 0.76 },
+      cucina: { xMin: 0.44, xMax: 0.72, yMin: 0.20, yMax: 0.50 },
+      pranzo: { xMin: 0.72, xMax: 1, yMin: 0.20, yMax: 0.58 },
+      living: { xMin: 0.44, xMax: 1, yMin: 0.58, yMax: 1 },
     },
   },
   {
@@ -76,9 +76,14 @@ const DECISIONS = [
       desc: "Zona notte aperta verso un piccolo living privato.",
     },
     hotspots: {
-      "camera padronale": { xMin: 0, xMax: 0.5, yMin: 0, yMax: 0.6 },
-      bagno: { xMin: 0.5, xMax: 0.75, yMin: 0, yMax: 0.6 },
-      "living primo piano": { xMin: 0, xMax: 1, yMin: 0.6, yMax: 1 },
+      "terrazza": { xMin: 0, xMax: 0.30, yMin: 0.18, yMax: 0.74 },
+      "camera ragazzi 1": { xMin: 0.30, xMax: 0.50, yMin: 0.12, yMax: 0.38 },
+      "bagno comune": { xMin: 0.50, xMax: 0.64, yMin: 0.12, yMax: 0.70 },
+      "camera padronale": { xMin: 0.64, xMax: 1, yMin: 0.08, yMax: 0.38 },
+      "disimpegno": { xMin: 0.30, xMax: 0.64, yMin: 0.38, yMax: 0.50 },
+      "cabina armadio": { xMin: 0.64, xMax: 1, yMin: 0.38, yMax: 0.50 },
+      "camera ragazzi 2": { xMin: 0.30, xMax: 0.58, yMin: 0.50, yMax: 0.72 },
+      "palestra": { xMin: 0.58, xMax: 1, yMin: 0.50, yMax: 0.72 },
     },
   },
 ];
@@ -408,11 +413,17 @@ function pickStyleTerm(area) {
 // drasticamente la pertinenza e il tasso di successo della ricerca.
 const AREA_EN_MAP = [
   ["zona notte ospiti", "guest bedroom"],
+  ["zona notte", "bedroom wing"],
+  ["camera ragazzi", "kids bedroom"],
   ["camera padronale", "master bedroom"],
   ["living primo piano", "upper floor living room"],
   ["cucina", "kitchen"],
   ["pranzo", "dining room"],
   ["bagno", "bathroom"],
+  ["disimpegno", "hallway"],
+  ["cabina armadio", "walk-in closet"],
+  ["palestra", "home gym"],
+  ["terrazza", "terrace"],
   ["living", "living room"],
   ["giardino", "garden"],
   ["area generica", "house interior"],
@@ -687,7 +698,7 @@ function HeroMonolith() {
 
 /* ---------------- TOP NAV + BOTTOM NAV ---------------- */
 
-function TopNav({ active, onNavigate, authSession, onOpenLogin, onLogout }) {
+function TopNav({ active, onNavigate, authSession, onOpenLogin, onLogout, onResetSession }) {
   const items = [
     { id: "progetto", label: "Progetto" },
     { id: "edita", label: "Edita" },
@@ -709,6 +720,11 @@ function TopNav({ active, onNavigate, authSession, onOpenLogin, onLogout }) {
         ))}
       </div>
       <div className="top-nav__session-wrap">
+        {authSession?.role === "architect" && (
+          <button className="top-nav__session-btn" onClick={onResetSession} title="Cancella annotazioni/scelte di test">
+            Reset sessione
+          </button>
+        )}
         {authSession ? (
           <>
             <span className="top-nav__session">{authSession.email}</span>
@@ -1697,6 +1713,21 @@ export default function App() {
     setIsDrawing(false);
   };
 
+  const handleResetSession = () => {
+    const ok = window.confirm(
+      "Cancellare tutte le annotazioni, scelte e reazioni salvate su questo browser? Serve solo per ripartire da zero durante i test — non è reversibile."
+    );
+    if (!ok) return;
+    localStorage.removeItem(DNA_STORAGE_KEY);
+    localStorage.removeItem(ANNOTATIONS_STORAGE_KEY);
+    setDna(emptyDNA());
+    setAnnotations([]);
+    setChoices({});
+    setReactions({});
+    setLycheePrompt(BASE_RENDER_PROMPT);
+    setPopup({ open: false });
+  };
+
   const handleToggleEdit = (decisionId) => {
     setActiveEditDecision((prev) => (prev === decisionId ? null : decisionId));
     setIsDrawing(false);
@@ -1972,6 +2003,7 @@ export default function App() {
           setAuthError("");
         }}
         onLogout={handleLogout}
+        onResetSession={handleResetSession}
       />
       <div className="progress-bar">
         <div

@@ -310,58 +310,20 @@ function extendRenderPrompt(currentPrompt, area, aiResult) {
 async function askProjectIntelligence({ area, quickChoice, customText }) {
   const userPayload = {
     area,
-    quick_choice: quickChoice || null,
-    custom_text: customText || null,
+    quickChoice: quickChoice || null,
+    customText: customText || null,
     project: "Villa 127/C, Noicattaro",
     clients: "Gabriele & Ludovica",
   };
 
-  const systemPrompt = `Sei l'Architectural Design Interpreter del sistema IEL per Villa 127/C.
-Ricevi un input strutturato su un'area della pianta e un'intenzione del cliente.
-Devi rispondere SOLO con un oggetto JSON valido, nessun testo fuori dal JSON,
-nessun preambolo, nessun code fence. Schema esatto:
-{
-  "interpretation": "sintesi tecnica dell'intenzione, 1 frase",
-  "design_intent": "testo conciso, tecnico e architettura-oriented, rivolto al cliente, max 3 frasi",
-  "open_questions": ["eventuali domande aperte per l'architetto"],
-  "system_feedback": "nota interna per l'architetto, 1 frase",
-  "proposal": {
-    "design_intent": "obiettivo architettonico strutturato",
-    "materials": ["materiali coerenti"],
-    "lighting_strategy": "strategia luminosa",
-    "atmosphere": "atmosfera risultante",
-    "functional_improvements": "migliorie funzionali",
-    "risks": ["rischi"],
-    "benefits": ["benefici"],
-    "contextual_recommendations": ["raccomandazioni contestuali"],
-    "confidence": 0.0
-  },
-  "inspiration_object": {
-    "style": "linguaggio architettonico",
-    "materials": ["materiali"],
-    "colors": ["colori"],
-    "lighting": "luce",
-    "keywords": ["keyword"],
-    "image_prompt": "prompt pronto per future image generation"
-  }
-}`;
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("/api/ai-intelligence", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: JSON.stringify(userPayload) }],
-      }),
+      body: JSON.stringify(userPayload),
     });
-    const data = await response.json();
-    const textBlock = (data.content || []).find((b) => b.type === "text");
-    const raw = (textBlock && textBlock.text) || "{}";
-    const clean = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
+    const parsed = await response.json();
+    if (!parsed || parsed.error) throw new Error("ai-intelligence non disponibile");
     const fallback = buildArchitecturalInterpretation({ area, quickChoice, customText });
     return {
       interpretation: parsed.interpretation || fallback.interpretation,
@@ -377,6 +339,70 @@ nessun preambolo, nessun code fence. Schema esatto:
 }
 
 /* ---------------- IMMAGINI DI RIFERIMENTO (Unsplash, via api/reference-images.js) ---------------- */
+
+// Libreria vocabolario "quiet luxury / mediterranean" — rende le ricerche
+// immagine coerenti con il linguaggio estetico reale del progetto invece di
+// restare generiche. Elenco curato a mano, non AI: copre i casi frequenti.
+const DESIGN_LIBRARY = {
+  styles: [
+    "luxury contemporary architecture",
+    "Mediterranean modernism",
+    "quiet luxury interior design",
+    "timeless residential design",
+  ],
+  landscape: [
+    "Mediterranean garden",
+    "olive trees courtyard",
+    "outdoor living pergola",
+    "luxury swimming pool",
+  ],
+  lighting: [
+    "architectural lighting design",
+    "hidden indirect lighting",
+    "natural daylight interior",
+  ],
+  decoration: [
+    "custom luxury furniture",
+    "designer furniture",
+    "indoor greenery",
+  ],
+};
+
+// Traduce i materiali/colori italiani già usati nel testo del motore a
+// regole nel termine inglese equivalente, solo per la ricerca immagine —
+// il testo italiano mostrato al cliente resta invariato.
+const MATERIAL_IT_EN = {
+  "travertino chiaro": "travertine",
+  "rovere naturale": "oak wood",
+  "microcemento opaco": "microcement",
+  "intonaco minerale caldo": "lime plaster",
+  "pietra locale spazzolata": "brushed limestone",
+};
+function materialEn(it) {
+  return MATERIAL_IT_EN[it] || it;
+}
+
+const COLOR_IT_EN = {
+  "sabbia": "sand beige",
+  "salvia": "sage green",
+  "bronzo ossidato": "oxidized bronze",
+  "avorio caldo": "warm ivory",
+  "pietra chiara": "light stone",
+  "bronzo brunito": "burnished bronze",
+};
+function colorEn(it) {
+  return COLOR_IT_EN[it] || it;
+}
+
+// Sceglie uno stile della libreria in modo deterministico in base all'area,
+// così la stessa area riannotata più volte resta coerente nello stile cercato.
+function pickStyleTerm(area) {
+  const pool = DESIGN_LIBRARY.styles;
+  let hash = 0;
+  const a = area || "";
+  for (let i = 0; i < a.length; i++) hash = (hash * 31 + a.charCodeAt(i)) % 997;
+  return pool[hash % pool.length];
+}
 
 // Unsplash è un catalogo in inglese: tradurre l'area (es. "cucina") aumenta
 // drasticamente la pertinenza e il tasso di successo della ricerca.
@@ -442,23 +468,32 @@ async function fetchReferenceImages(queries, fallbackQuery) {
 // inglese per Unsplash). Elenco finito: copre i casi comuni, non sostituisce
 // una vera comprensione del linguaggio (per quello serve la AI reale).
 const REQUEST_KEYWORD_MAP = [
-  ["mobil", "furniture"],
+  ["mobil", "custom luxury furniture"],
+  ["arred", "custom luxury furniture"],
   ["divano", "sofa"],
   ["poltrona", "armchair"],
   ["tavolo", "dining table"],
   ["sedi", "chairs"],
   ["letto", "bed"],
   ["armadio", "wardrobe"],
-  ["illumina", "lighting fixture"],
+  ["luce", "architectural lighting design"],
+  ["illumina", "architectural lighting design"],
   ["lampad", "lamp"],
   ["pavimento", "flooring"],
+  ["rivestiment", "natural stone cladding"],
+  ["facciat", "mediterranean facade architecture"],
   ["finestra", "window"],
   ["porta", "door"],
-  ["terrazza", "terrace"],
+  ["terrazza", "outdoor living terrace"],
   ["scala", "staircase"],
   ["colore", "color palette"],
   ["tappeto", "rug"],
   ["libreria", "bookshelf"],
+  ["verde", "Mediterranean garden greenery"],
+  ["giardino", "Mediterranean garden"],
+  ["piscina", "luxury swimming pool"],
+  ["outdoor", "outdoor living space"],
+  ["wellness", "wellness spa interior"],
 ];
 
 function extractRequestKeywordEn(request) {
@@ -472,15 +507,24 @@ function extractRequestKeywordEn(request) {
 function buildImageQueries(area, inspirationObject, request) {
   const areaEn = translateArea(area);
   const requestEn = extractRequestKeywordEn(request);
-  if (!inspirationObject) return [requestEn ? `${requestEn} ${areaEn}` : `${areaEn} interior architecture`];
-  const { style, materials = [], colors = [] } = inspirationObject;
+  const styleTerm = pickStyleTerm(area);
+
+  if (!inspirationObject) {
+    return [requestEn ? `${requestEn} ${areaEn}` : `${styleTerm} ${areaEn}`];
+  }
+
+  const { materials = [], colors = [] } = inspirationObject;
+  const mat0 = materials[0] ? materialEn(materials[0]) : null;
+  const mat1 = materials[1] ? materialEn(materials[1]) : null;
+  const col0 = colors[0] ? colorEn(colors[0]) : null;
+
   const queries = [
-    requestEn ? `${requestEn} ${areaEn}` : `${areaEn} interior design`,
-    requestEn ? `${requestEn} interior design` : (materials[0] ? `${materials[0]} ${areaEn}` : `${areaEn} architecture`),
-    materials[1] ? `${materials[1]} interior design` : `${style || ""} interior`.trim(),
-    colors[0] ? `${colors[0]} ${areaEn} decor` : `${areaEn} architectural detail`,
+    requestEn ? `${requestEn} ${areaEn}` : `${styleTerm} ${areaEn}`,
+    mat0 ? `${mat0} ${areaEn}` : `${styleTerm} interior`,
+    requestEn && mat0 ? `${mat0} ${requestEn}` : (mat1 ? `${mat1} interior design` : `${styleTerm} interior design`),
+    col0 ? `${col0} ${areaEn} luxury interior` : `${areaEn} architectural detail`,
   ];
-  return queries.filter(Boolean);
+  return [...new Set(queries.filter(Boolean))];
 }
 
 /* ---------------- HERO: shader bronzo + monolite Three.js ---------------- */

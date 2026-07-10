@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   try {
     const safePage = Number.isInteger(page) && page > 0 ? page : 1
     const response = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&page=${safePage}`,
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&page=${safePage}&orientation=landscape`,
       { headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` } }
     )
     const data = await response.json()

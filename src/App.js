@@ -399,14 +399,30 @@ function colorEn(it) {
   return COLOR_IT_EN[it] || it;
 }
 
-// Sceglie uno stile della libreria in modo deterministico in base all'area,
-// così la stessa area riannotata più volte resta coerente nello stile cercato.
-function pickStyleTerm(area) {
-  const pool = DESIGN_LIBRARY.styles;
-  let hash = 0;
-  const a = area || "";
-  for (let i = 0; i < a.length; i++) hash = (hash * 31 + a.charCodeAt(i)) % 997;
-  return pool[hash % pool.length];
+// Termine di ricerca corretto per ogni tipo di ambiente — sostituisce lo stile
+// "quiet luxury" generico applicato ovunque, che su Unsplash produceva quasi
+// zero risultati pertinenti per ambienti come la camera dei bambini (il
+// linguaggio fotografico "luxury" è quasi sempre spazi adulti).
+const ROOM_TYPE_QUERY = {
+  "kids bedroom": "modern kids bedroom interior",
+  "master bedroom": "luxury master bedroom interior",
+  "bedroom wing": "modern bedroom interior",
+  "guest bedroom": "modern guest bedroom interior",
+  "kitchen": "luxury kitchen design",
+  "dining room": "elegant dining room interior",
+  "living room": "luxury living room interior",
+  "upper floor living room": "modern living room interior",
+  "bathroom": "modern bathroom design",
+  "hallway": "modern hallway interior",
+  "walk-in closet": "walk-in closet design",
+  "home gym": "home gym design",
+  "terrace": "outdoor terrace design",
+  "garden": "Mediterranean garden design",
+  "house interior": "luxury home interior",
+};
+
+function roomStyleTerm(areaEn) {
+  return ROOM_TYPE_QUERY[areaEn] || `${areaEn} interior design`;
 }
 
 // Unsplash è un catalogo in inglese: tradurre l'area (es. "cucina") aumenta
@@ -518,10 +534,10 @@ function extractRequestKeywordEn(request) {
 function buildImageQueries(area, inspirationObject, request) {
   const areaEn = translateArea(area);
   const requestEn = extractRequestKeywordEn(request);
-  const styleTerm = pickStyleTerm(area);
+  const roomTerm = roomStyleTerm(areaEn);
 
   if (!inspirationObject) {
-    return [requestEn ? `${requestEn} ${areaEn}` : `${styleTerm} ${areaEn}`];
+    return [requestEn ? `${requestEn} ${areaEn}` : roomTerm];
   }
 
   const { materials = [], colors = [] } = inspirationObject;
@@ -530,10 +546,10 @@ function buildImageQueries(area, inspirationObject, request) {
   const col0 = colors[0] ? colorEn(colors[0]) : null;
 
   const queries = [
-    requestEn ? `${requestEn} ${areaEn}` : `${styleTerm} ${areaEn}`,
-    mat0 ? `${mat0} ${areaEn}` : `${styleTerm} interior`,
-    requestEn && mat0 ? `${mat0} ${requestEn}` : (mat1 ? `${mat1} interior design` : `${styleTerm} interior design`),
-    col0 ? `${col0} ${areaEn} luxury interior` : `${areaEn} architectural detail`,
+    requestEn ? `${requestEn} ${areaEn}` : roomTerm,
+    mat0 ? `${mat0} ${areaEn}` : roomTerm,
+    requestEn && mat0 ? `${mat0} ${requestEn}` : (mat1 ? `${mat1} ${areaEn}` : roomTerm),
+    col0 ? `${col0} ${areaEn}` : roomTerm,
   ];
   return [...new Set(queries.filter(Boolean))];
 }
@@ -1818,7 +1834,7 @@ export default function App() {
     ]);
     const referenceImages = await fetchReferenceImages(
       buildImageQueries(popup.area, aiResult.inspiration_object, customText || quickChoice),
-      `${translateArea(popup.area)} interior architecture`
+      roomStyleTerm(translateArea(popup.area))
     );
     setPopup((p) => ({ ...p, step: "confirm", aiResult: { ...aiResult, reference_images: referenceImages } }));
   };
